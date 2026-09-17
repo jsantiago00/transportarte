@@ -1,0 +1,7 @@
+name = "mendotran-proxy"
+main = "src/index.js"
+compatibility_date = "2026-09-17"
+
+routes = [
+  { pattern = "api.santiagososa.com.ar", custom_domain = true }
+]

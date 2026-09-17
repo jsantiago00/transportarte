@@ -1,0 +1,346 @@
+const UPSTREAM = "https://mendotran.oba.visionblo.com/oba_api/api/where/";
+
+function withCors(headers) {
+  const h = new Headers(headers);
+  h.set("Access-Control-Allow-Origin", "*");
+  h.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+  h.set("Access-Control-Allow-Headers", "Content-Type");
+  return h;
+}
+
+function json(data, status) {
+  return new Response(JSON.stringify(data), {
+    status: status || 200,
+    headers: withCors({ "Content-Type": "application/json" }),
+  });
+}
+
+// ---------- Llamadas a Mendotran (OneBusAway) ----------
+
+function fetchOBA(path, params) {
+  const url = UPSTREAM + path + "?" + Object.keys(params)
+    .map((k) => encodeURIComponent(k) + "=" + encodeURIComponent(params[k]))
+    .join("&");
+  return fetch(url, { cf: { cacheTtl: 15, cacheEverything: true } })
+    .then((res) => {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    })
+    .then((body) => {
+      if (body.code !== 200) throw new Error("API code " + body.code);
+      return body.data;
+    });
+}
+
+function fetchArrivals(stopId) {
+  return fetchOBA("arrivals-and-departures-for-stop/" + encodeURIComponent(stopId) + ".json", {
+    platform: "web", v: "", minutesBefore: 0, minutesAfter: 65, version: "1.0",
+  });
+}
+
+function fetchTripDetails(tripId) {
+  return fetchOBA("trip-details-for-trip/" + encodeURIComponent(tripId) + ".json", {
+    platform: "web", v: "", version: "1.0",
+  }).then((data) => {
+    const stopTimes = (data.entry && data.entry.schedule && data.entry.schedule.stopTimes) || [];
+    const codeById = {};
+    const refByCode = {};
+    ((data.references && data.references.stops) || []).forEach((s) => {
+      const code = s.code || s.name;
+      codeById[s.id] = code;
+      refByCode[code] = s;
+    });
+    return { stopTimes, codeById, refByCode };
+  }).catch(() => ({ stopTimes: [], codeById: {}, refByCode: {} }));
+}
+
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function findNearestStops(lat, lon, limit) {
+  return fetchOBA("stops-for-location.json", { lat, lon, latSpan: 0.01, lonSpan: 0.01 })
+    .then((data) => {
+      const list = data.list || data.stops || [];
+      if (!list.length) throw new Error("Sin paradas cercanas");
+      return list
+        .map((s) => ({ stop: s, d: haversine(lat, lon, s.lat, s.lon) }))
+        .sort((a, b) => a.d - b.d)
+        .slice(0, limit || 5)
+        .map((x) => x.stop);
+    });
+}
+
+function buildStopArrivals(stops) {
+  return Promise.all(stops.map((stop) =>
+    fetchArrivals(stop.id)
+      .then((data) => ({ stop, arrivals: (data.entry && data.entry.arrivalsAndDepartures) || [] }))
+      .catch(() => ({ stop, arrivals: [] }))
+  ));
+}
+
+// Toma hasta perStopLimit arribos por parada (no un top-N global), para que una esquina
+// muy transitada no le gane el cupo a las demás paradas cercanas y tape conexiones reales.
+function flattenSoonestTrips(stopResults, perStopLimit) {
+  const seen = {};
+  const flat = [];
+  stopResults.forEach((r) => {
+    const sorted = r.arrivals.slice().sort((a, b) =>
+      (a.predictedArrivalTime || a.scheduledArrivalTime) - (b.predictedArrivalTime || b.scheduledArrivalTime));
+    let taken = 0;
+    for (let i = 0; i < sorted.length && taken < perStopLimit; i++) {
+      const a = sorted[i];
+      if (!a.tripId || seen[a.tripId]) continue;
+      seen[a.tripId] = true;
+      flat.push({ arrival: a, stop: r.stop });
+      taken++;
+    }
+  });
+  return flat;
+}
+
+const TRANSFER_BUFFER_MS = 3 * 60000;
+
+// Recorre la secuencia completa de paradas de cada colectivo próximo (no solo los arribos
+// ya anunciados en la parada de destino) para saber con certeza si, más adelante en su
+// recorrido, ese mismo viaje pasa por alguna parada cercana al destino.
+function findDirectCandidates(originResults, destStops, limit) {
+  const destByCode = {};
+  destStops.forEach((s) => { destByCode[s.name] = s; });
+  const toProbe = flattenSoonestTrips(originResults, 5);
+
+  return Promise.all(toProbe.map((item) =>
+    fetchTripDetails(item.arrival.tripId).then((details) => ({ item, details }))
+  )).then((results) => {
+    let candidates = [];
+    results.forEach((r) => {
+      const { stopTimes, codeById } = r.details;
+      if (!stopTimes.length) return;
+      let originEntry = null;
+      for (let i = 0; i < stopTimes.length; i++) {
+        if (codeById[stopTimes[i].stopId] === r.item.stop.name) { originEntry = stopTimes[i]; break; }
+      }
+      if (!originEntry) return;
+      let destEntry = null, destStop = null;
+      for (let j = 0; j < stopTimes.length; j++) {
+        const code = codeById[stopTimes[j].stopId];
+        if (code && destByCode[code] && stopTimes[j].arrivalTime > originEntry.arrivalTime) {
+          destEntry = stopTimes[j];
+          destStop = destByCode[code];
+          break;
+        }
+      }
+      if (!destEntry) return;
+      const a = r.item.arrival;
+      const originPredicted = a.predictedArrivalTime || a.scheduledArrivalTime;
+      const destPredicted = originPredicted + (destEntry.arrivalTime - originEntry.arrivalTime) * 1000;
+      candidates.push({
+        route: a.routeShortName || a.routeId || "",
+        headsign: a.tripHeadsign || "",
+        originStop: r.item.stop,
+        originTime: originPredicted,
+        destStop,
+        destTime: destPredicted,
+      });
+    });
+    const cutoff = Date.now() - 30000;
+    candidates = candidates.filter((c) => c.originTime > cutoff);
+    candidates.sort((a, b) => a.originTime - b.originTime);
+    return candidates.slice(0, limit || 5);
+  });
+}
+
+// Búsqueda "hacia adelante": para cada colectivo próximo cerca del origen, a qué parada
+// (y a qué hora) se puede llegar en cada punto de su recorrido.
+function buildReachableMap(originResults, limit) {
+  const toProbe = flattenSoonestTrips(originResults, limit);
+  return Promise.all(toProbe.map((item) =>
+    fetchTripDetails(item.arrival.tripId).then((details) => ({ item, details }))
+  )).then((results) => {
+    const reachable = {};
+    results.forEach((r) => {
+      const { stopTimes, codeById, refByCode } = r.details;
+      if (!stopTimes.length) return;
+      let originIdx = -1;
+      for (let i = 0; i < stopTimes.length; i++) {
+        if (codeById[stopTimes[i].stopId] === r.item.stop.name) { originIdx = i; break; }
+      }
+      if (originIdx === -1) return;
+      const a = r.item.arrival;
+      const originPredicted = a.predictedArrivalTime || a.scheduledArrivalTime;
+      const originOffset = stopTimes[originIdx].arrivalTime;
+      for (let j = originIdx + 1; j < stopTimes.length; j++) {
+        const code = codeById[stopTimes[j].stopId];
+        if (!code) continue;
+        const arrivalTime = originPredicted + (stopTimes[j].arrivalTime - originOffset) * 1000;
+        if (!reachable[code] || arrivalTime < reachable[code].arrivalTime) {
+          reachable[code] = {
+            stopRef: refByCode[code],
+            arrivalTime,
+            route: a.routeShortName || a.routeId || "",
+            headsign: a.tripHeadsign || "",
+            originStop: r.item.stop,
+            originTime: originPredicted,
+          };
+        }
+      }
+    });
+    return reachable;
+  });
+}
+
+// Búsqueda "hacia atrás": para cada colectivo que está por llegar a una parada cerca
+// del destino, en qué paradas anteriores de su recorrido se lo podría abordar y a qué hora.
+function buildCoverageMap(destResults, destStops, limit) {
+  const destCodes = {};
+  destStops.forEach((s) => { destCodes[s.name] = s; });
+  const toProbe = flattenSoonestTrips(destResults, limit);
+
+  return Promise.all(toProbe.map((item) =>
+    fetchTripDetails(item.arrival.tripId).then((details) => ({ item, details }))
+  )).then((results) => {
+    const coverage = {};
+    results.forEach((r) => {
+      const { stopTimes, codeById, refByCode } = r.details;
+      if (!stopTimes.length) return;
+      let destIdx = -1, destCode = null;
+      for (let i = 0; i < stopTimes.length; i++) {
+        const c = codeById[stopTimes[i].stopId];
+        if (c && destCodes[c]) { destIdx = i; destCode = c; break; }
+      }
+      if (destIdx === -1) return;
+      const a = r.item.arrival;
+      const destPredicted = a.predictedArrivalTime || a.scheduledArrivalTime;
+      const destOffset = stopTimes[destIdx].arrivalTime;
+      for (let j = 0; j < destIdx; j++) {
+        const code = codeById[stopTimes[j].stopId];
+        if (!code || coverage[code]) continue;
+        coverage[code] = {
+          stopRef: refByCode[code],
+          boardTime: destPredicted - (destOffset - stopTimes[j].arrivalTime) * 1000,
+          route: a.routeShortName || a.routeId || "",
+          headsign: a.tripHeadsign || "",
+          destStop: destCodes[destCode],
+          destTime: destPredicted,
+        };
+      }
+    });
+    return coverage;
+  });
+}
+
+function findTwoLegCandidates(reachable, coverage, limit) {
+  let candidates = [];
+  Object.keys(reachable).forEach((code) => {
+    const cov = coverage[code];
+    if (!cov) return;
+    const reach = reachable[code];
+    if (cov.boardTime < reach.arrivalTime + TRANSFER_BUFFER_MS) return;
+    candidates.push({
+      leg1Route: reach.route, leg1Headsign: reach.headsign,
+      originStop: reach.originStop, originTime: reach.originTime,
+      transferStop: reach.stopRef || cov.stopRef, transferArrival: reach.arrivalTime, transferBoard: cov.boardTime,
+      leg2Route: cov.route, leg2Headsign: cov.headsign,
+      destStop: cov.destStop, destTime: cov.destTime,
+    });
+  });
+  const cutoff = Date.now() - 30000;
+  candidates = candidates.filter((c) => c.originTime > cutoff && c.transferBoard > cutoff);
+  candidates.sort((a, b) => a.originTime - b.originTime);
+  return candidates.slice(0, limit || 5);
+}
+
+// ---------- Endpoint /route.json ----------
+// GET /route.json?fromLat=..&fromLon=..&toLat=..&toLon=..
+// Devuelve { direct: [...], transfer: [...], fallback: {...} | null }
+async function handleRoute(url) {
+  const fromLat = parseFloat(url.searchParams.get("fromLat"));
+  const fromLon = parseFloat(url.searchParams.get("fromLon"));
+  const toLat = parseFloat(url.searchParams.get("toLat"));
+  const toLon = parseFloat(url.searchParams.get("toLon"));
+  if ([fromLat, fromLon, toLat, toLon].some((n) => Number.isNaN(n))) {
+    return json({ code: 400, text: "Faltan o son inválidos fromLat/fromLon/toLat/toLon" }, 400);
+  }
+
+  let originStops, destStops;
+  try {
+    [originStops, destStops] = await Promise.all([
+      findNearestStops(fromLat, fromLon, 5),
+      findNearestStops(toLat, toLon, 5),
+    ]);
+  } catch (err) {
+    return json({ code: 502, text: "No se encontraron paradas cercanas: " + err.message }, 502);
+  }
+
+  const originResults = await buildStopArrivals(originStops);
+  const direct = await findDirectCandidates(originResults, destStops, 5);
+
+  if (direct.length) {
+    return json({ code: 200, data: { direct, transfer: [], fallback: null } });
+  }
+
+  const destResults = await buildStopArrivals(destStops);
+  const [reachable, coverage] = await Promise.all([
+    buildReachableMap(originResults, 4),
+    buildCoverageMap(destResults, destStops, 4),
+  ]);
+  const transfer = findTwoLegCandidates(reachable, coverage, 5);
+
+  if (transfer.length) {
+    return json({ code: 200, data: { direct: [], transfer, fallback: null } });
+  }
+
+  return json({
+    code: 200,
+    data: {
+      direct: [],
+      transfer: [],
+      fallback: {
+        originStop: originResults[0] ? originResults[0].stop : null,
+        originArrivals: originResults[0] ? originResults[0].arrivals : [],
+        destStop: destStops[0] || null,
+      },
+    },
+  });
+}
+
+export default {
+  async fetch(request) {
+    if (request.method === "OPTIONS") {
+      return new Response(null, { headers: withCors({}) });
+    }
+    if (request.method !== "GET") {
+      return new Response("Method not allowed", { status: 405, headers: withCors({}) });
+    }
+
+    const url = new URL(request.url);
+
+    if (url.pathname === "/route.json") {
+      try {
+        return await handleRoute(url);
+      } catch (err) {
+        return json({ code: 500, text: "Error interno: " + err.message }, 500);
+      }
+    }
+
+    const path = url.pathname.replace(/^\/+/, "");
+    if (!path || path.includes("..") || !path.endsWith(".json")) {
+      return new Response("Not found", { status: 404, headers: withCors({}) });
+    }
+
+    const upstreamUrl = UPSTREAM + path + url.search;
+    const upstreamResponse = await fetch(upstreamUrl, {
+      cf: { cacheTtl: 15, cacheEverything: true },
+    });
+
+    return new Response(upstreamResponse.body, {
+      status: upstreamResponse.status,
+      headers: withCors(upstreamResponse.headers),
+    });
+  },
+};

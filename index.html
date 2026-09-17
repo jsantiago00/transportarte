@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="es" data-palette="cielo">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>TransportArte</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --radius: 14px;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  :root[data-palette="cielo"] {
+    --bg: #eef5fb;
+    --surface: #ffffff;
+    --surface-2: #e1edf7;
+    --text: #1c2b3a;
+    --muted: #64798d;
+    --border: #d3e2ee;
+    --primary: #2f7dd6;
+    --primary-dark: #1f5fac;
+    --success: #1f9d55;
+    --success-bg: #e5f7ea;
+    --warning: #b7791f;
+    --warning-bg: #fdf3dd;
+    --danger: #d92d20;
+    --danger-bg: #fde8e6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root[data-palette="cielo"] {
+      --bg: #0f1720;
+      --surface: #16212c;
+      --surface-2: #1e2b38;
+      --text: #e7eef5;
+      --muted: #93a6b8;
+      --border: #2a3a4a;
+      --primary: #5b9be8;
+      --primary-dark: #3f7dd0;
+      --success: #34c471;
+      --success-bg: #113322;
+      --warning: #e0ac48;
+      --warning-bg: #3a2c0c;
+      --danger: #f16a5e;
+      --danger-bg: #3a1613;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Nunito', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding-bottom: 40px;
+  }
+  img { max-width: 100%; }
+  [hidden] { display: none !important; }
+  button { font-family: inherit; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+  input, select, textarea { font-family: inherit; font-size: 16px; }
+  body { overscroll-behavior-y: contain; -webkit-text-size-adjust: 100%; }
+
+  header.app-header {
+    background: var(--surface);
+    padding: calc(16px + env(safe-area-inset-top, 0px)) 16px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  header.app-header h1 {
+    margin: 0;
+    font-family: 'Fraunces', Georgia, serif;
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--primary-dark);
+  }
+  header.app-header .sub { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
+
+  main { padding: 16px; max-width: 560px; margin: 0 auto; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 16px;
+    margin-bottom: 14px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+  }
+  .card h2 {
+    font-family: 'Fraunces', Georgia, serif;
+    font-weight: 600;
+    font-size: 16px;
+    margin: 0 0 10px;
+  }
+  .field { margin-bottom: 10px; }
+  .field label { display: block; font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 4px; }
+  .field input[type=text] {
+    width: 100%;
+    padding: 10px 11px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface-2);
+    color: var(--text);
+  }
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .btn {
+    border: none;
+    padding: 11px 14px;
+    border-radius: 12px;
+    font-size: 13.5px;
+    font-weight: 700;
+    cursor: pointer;
+    flex: 1;
+    min-width: 120px;
+  }
+  .btn-primary { background: var(--primary); color: #fff; box-shadow: 0 4px 12px -3px var(--primary-dark); }
+  .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  .btn-full { width: 100%; padding: 13px; font-size: 15px; border-radius: 13px; }
+  .status-line { font-size: 12px; color: var(--muted); margin-top: 6px; min-height: 16px; }
+  .status-line.ok { color: var(--success); font-weight: 700; }
+  .status-line.err { color: var(--danger); font-weight: 700; }
+
+  .search-btn {
+    display: block;
+    width: 100%;
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    padding: 15px;
+    border-radius: 14px;
+    font-size: 16px;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 6px 16px -3px var(--primary-dark);
+    margin-bottom: 16px;
+  }
+  .search-btn:disabled { opacity: 0.6; cursor: default; }
+
+  .section-title {
+    font-size: 12.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 4px 0 8px;
+  }
+  .transit-loading { color: var(--muted); font-size: 13px; text-align: center; padding: 16px; }
+  .empty-hint { color: var(--muted); font-size: 13px; text-align: center; padding: 30px 16px; }
+
+  .transit-result { display: flex; flex-direction: column; gap: 8px; }
+  .arrival {
+    padding: 12px 12px;
+    border-radius: 13px;
+    background: var(--surface-2);
+  }
+  .arrival.convenient { background: var(--success-bg); }
+  .journey-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; gap: 8px; }
+  .journey-head .journey-when { font-size: 13px; font-weight: 700; color: var(--success); white-space: nowrap; }
+  .journey-step { display: flex; gap: 8px; padding: 5px 0; }
+  .journey-step + .journey-step { border-top: 1px dashed var(--border); }
+  .step-tag {
+    flex-shrink: 0;
+    font-size: 9.5px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 3px 8px;
+    border-radius: 999px;
+    height: fit-content;
+    margin-top: 1px;
+    background: var(--primary);
+    color: #fff;
+    width: 46px;
+    text-align: center;
+  }
+  .step-tag.alight { background: var(--text); opacity: 0.75; }
+  .step-body { flex: 1; min-width: 0; }
+  .step-route { font-size: 13px; font-weight: 700; }
+  .step-place { font-size: 12.5px; color: var(--text); }
+  .step-place .link-btn { font-size: 11.5px; margin-left: 4px; white-space: nowrap; }
+  .step-time { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+  .link-btn { color: var(--primary); text-decoration: none; font-weight: 700; }
+
+  .toast {
+    position: fixed;
+    bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--text);
+    color: var(--bg);
+    padding: 10px 16px;
+    border-radius: 999px;
+    font-size: 13px;
+    z-index: 80;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.2);
+  }
+  footer.about {
+    max-width: 560px;
+    margin: 0 auto;
+    padding: 0 16px 20px;
+    font-size: 11.5px;
+    color: var(--muted);
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <h1>TransportArte</h1>
+  <p class="sub">¿Cómo llego? Colectivos de Mendoza (Mendotran)</p>
+</header>
+
+<main>
+  <div class="card">
+    <h2>Desde dónde salís</h2>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="useMyLocation" type="button">Usar mi ubicación</button>
+      <button class="btn btn-outline" id="openMapsOrigin" type="button">Abrir Google Maps</button>
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>O pegá coordenadas / link de Maps</label>
+      <input type="text" id="originPaste" placeholder="-32,90 -68,84 o link de Maps">
+    </div>
+    <div class="status-line" id="originStatus">Sin definir todavía.</div>
+  </div>
+
+  <div class="card">
+    <h2>A dónde vas</h2>
+    <div class="btn-row">
+      <button class="btn btn-outline" id="openMapsDest" type="button">Abrir Google Maps</button>
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Pegá coordenadas / link de Maps</label>
+      <input type="text" id="destPaste" placeholder="-32,90 -68,84 o link de Maps">
+    </div>
+    <div class="status-line" id="destStatus">Sin definir todavía.</div>
+  </div>
+
+  <button class="search-btn" id="searchBtn" type="button" disabled>Buscar viaje</button>
+
+  <div id="resultsArea"></div>
+</main>
+
+<footer class="about">Datos en vivo de Mendotran (OneBusAway). Esta página no reemplaza a la app oficial.</footer>
+
+<div id="toastRoot"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  var API_BASE = 'https://api.santiagososa.com.ar/';
+  var STORAGE_KEY = 'transportarte_last_v1';
+
+  var state = { origin: null, dest: null };
+
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function fmtClockTime(ms) {
+    var d = new Date(ms);
+    return pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function toast(msg) {
+    var el = document.createElement('div');
+    el.className = 'toast';
+    el.textContent = msg;
+    document.getElementById('toastRoot').appendChild(el);
+    setTimeout(function() { el.remove(); }, 2200);
+  }
+
+  function parseMapsCoords(text) {
+    text = (text || '').trim();
+    if (!text) return null;
+    var esMatch = text.match(/^(-?\d{1,3},\d+)\s*,?\s+(-?\d{1,3},\d+)$/) || text.match(/^(-?\d{1,3},\d+)\s*,\s*(-?\d{1,3},\d+)$/);
+    if (esMatch) {
+      return { lat: parseFloat(esMatch[1].replace(',', '.')), lon: parseFloat(esMatch[2].replace(',', '.')) };
+    }
+    var patterns = [
+      /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/,
+      /[?&](?:q|query)=(-?\d+\.\d+),(-?\d+\.\d+)/,
+      /@(-?\d+\.\d+),(-?\d+\.\d+)/,
+      /^(-?\d{1,3}\.\d+)[\s,]+(-?\d{1,3}\.\d+)$/
+    ];
+    for (var i = 0; i < patterns.length; i++) {
+      var m = text.match(patterns[i]);
+      if (m) return { lat: parseFloat(m[1]), lon: parseFloat(m[2]) };
+    }
+    return null;
+  }
+
+  function getCurrentPosition() {
+    return new Promise(function(resolve, reject) {
+      if (!navigator.geolocation) { reject(new Error('sin soporte de geolocalización')); return; }
+      navigator.geolocation.getCurrentPosition(
+        function(pos) { resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }); },
+        function(err) { reject(new Error(err.message || 'permiso denegado')); },
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+      );
+    });
+  }
+
+  function mapsSearchLink(stop) {
+    return (stop && stop.lat && stop.lon) ? 'https://www.google.com/maps/search/?api=1&query=' + stop.lat + ',' + stop.lon : null;
+  }
+
+  function stopLocationHtml(stop) {
+    var mapsLink = mapsSearchLink(stop);
+    return '<p style="font-size:13.5px;font-weight:700;margin:0 0 2px;">' + escapeHtml(stop.address || stop.name) + '</p>' +
+      '<p style="font-size:11.5px;margin:0 0 6px;color:var(--muted);">Parada ' + escapeHtml(stop.name) +
+      (mapsLink ? ' · <a href="' + mapsLink + '" target="_blank" rel="noopener" class="link-btn" style="font-size:11.5px;">Ver en el mapa</a>' : '') +
+      '</p>';
+  }
+
+  function journeyStep(tag, tagClass, routeLine, place, timeLine) {
+    var routePart = routeLine ? '<div class="step-route">' + escapeHtml(routeLine) + '</div>' : '';
+    var placePart = '';
+    if (place && place.label) {
+      var link = mapsSearchLink(place.stop);
+      placePart = '<div class="step-place">' + escapeHtml(place.label) + (link ? ' · <a href="' + link + '" target="_blank" rel="noopener" class="link-btn">Ver en el mapa</a>' : '') + '</div>';
+    }
+    return '<div class="journey-step">' +
+      '<span class="step-tag ' + tagClass + '">' + tag + '</span>' +
+      '<div class="step-body">' + routePart + placePart + '<div class="step-time">' + escapeHtml(timeLine) + '</div></div>' +
+    '</div>';
+  }
+
+  function arrivalsHtml(arrivals) {
+    if (!arrivals.length) return '<p style="font-size:12.5px;color:var(--muted);margin:4px 0 0;">No hay llegadas previstas por ahora.</p>';
+    var now = Date.now();
+    var rows = arrivals.slice(0, 5).map(function(a) {
+      var t = a.predictedArrivalTime || a.scheduledArrivalTime;
+      var mins = Math.round((t - now) / 60000);
+      var route = a.routeShortName || a.routeId || '';
+      return '<div class="arrival"><div class="journey-head"><span class="step-route">' + escapeHtml(route + ' · ' + (a.tripHeadsign || '')) + '</span><span class="journey-when">' + (mins <= 0 ? 'Ahora' : mins + ' min') + '</span></div></div>';
+    }).join('');
+    return rows;
+  }
+
+  function candidatesHtml(candidates) {
+    var now = Date.now();
+    return candidates.map(function(c) {
+      var mins = Math.round((c.originTime - now) / 60000);
+      return '<div class="arrival convenient">' +
+        '<div class="journey-head"><span class="step-route">' + escapeHtml(c.route + ' · ' + c.headsign) + '</span><span class="journey-when">' + (mins <= 0 ? 'Ahora' : mins + ' min') + '</span></div>' +
+        journeyStep('Subís', 'board', '', { label: c.originStop.address || c.originStop.name, stop: c.originStop }, 'Sale a las ' + fmtClockTime(c.originTime)) +
+        journeyStep('Bajás', 'alight', '', { label: c.destStop.address || c.destStop.name, stop: c.destStop }, 'Llegás ~' + fmtClockTime(c.destTime)) +
+      '</div>';
+    }).join('');
+  }
+
+  function twoLegCandidatesHtml(candidates) {
+    var now = Date.now();
+    return candidates.map(function(c) {
+      var mins = Math.round((c.originTime - now) / 60000);
+      var transferLabel = c.transferStop ? (c.transferStop.address || c.transferStop.name) : 'la parada de trasbordo';
+      return '<div class="arrival convenient">' +
+        '<div class="journey-head"><span class="step-route">' + escapeHtml(c.leg1Route) + ' · con transbordo</span><span class="journey-when">' + (mins <= 0 ? 'Ahora' : mins + ' min') + '</span></div>' +
+        journeyStep('Subís', 'board', c.leg1Headsign, { label: c.originStop.address || c.originStop.name, stop: c.originStop }, 'Sale a las ' + fmtClockTime(c.originTime)) +
+        journeyStep('Bajás', 'alight', '', { label: transferLabel, stop: c.transferStop }, 'Llegás ~' + fmtClockTime(c.transferArrival)) +
+        journeyStep('Subís', 'board', c.leg2Route + ' · ' + c.leg2Headsign, null, 'Sale ~' + fmtClockTime(c.transferBoard)) +
+        journeyStep('Bajás', 'alight', '', { label: c.destStop.address || c.destStop.name, stop: c.destStop }, 'Llegás ~' + fmtClockTime(c.destTime)) +
+      '</div>';
+    }).join('');
+  }
+
+  function fetchRoute(fromLat, fromLon, toLat, toLon) {
+    var url = API_BASE + 'route.json?fromLat=' + fromLat + '&fromLon=' + fromLon + '&toLat=' + toLat + '&toLon=' + toLon;
+    return fetch(url).then(function(res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    }).then(function(body) {
+      if (body.code !== 200) throw new Error(body.text || ('código ' + body.code));
+      return body.data;
+    });
+  }
+
+  function mapsDirUrl() {
+    if (!state.origin || !state.dest) return '#';
+    return 'https://www.google.com/maps/dir/?api=1&origin=' + state.origin.lat + ',' + state.origin.lon +
+      '&destination=' + state.dest.lat + ',' + state.dest.lon + '&travelmode=transit';
+  }
+
+  function renderResults(data) {
+    var el = document.getElementById('resultsArea');
+    var mapsLink = '<div class="btn-row"><a class="btn btn-outline btn-full" style="text-align:center;text-decoration:none;" href="' + mapsDirUrl() + '" target="_blank" rel="noopener">Ver ruta completa en Google Maps</a></div>';
+    if (data.direct && data.direct.length) {
+      el.innerHTML = '<div class="section-title">Mejores opciones</div><div class="transit-result">' + candidatesHtml(data.direct) + '</div>' + mapsLink;
+      return;
+    }
+    if (data.transfer && data.transfer.length) {
+      el.innerHTML = '<div class="section-title">Combinaciones con transbordo</div><div class="transit-result">' + twoLegCandidatesHtml(data.transfer) + '</div>' + mapsLink;
+      return;
+    }
+    var fb = data.fallback || {};
+    var html = '<div class="section-title">Cerca de donde salís</div>' +
+      '<div class="card">' + (fb.originStop ? stopLocationHtml(fb.originStop) + arrivalsHtml(fb.originArrivals || []) : '<p style="font-size:13px;color:var(--muted);">No se encontraron paradas cercanas.</p>') + '</div>' +
+      '<p style="font-size:12px;color:var(--muted);margin:4px 0 12px;">No encontramos ni una línea directa ni una combinación con transbordo entre las paradas cercanas.</p>' +
+      '<div class="section-title">Cerca de a dónde vas</div>' +
+      '<div class="card">' + (fb.destStop ? stopLocationHtml(fb.destStop) : '<p style="font-size:13px;color:var(--muted);">No se encontró una parada cercana.</p>') + '</div>' +
+      mapsLink;
+    el.innerHTML = html;
+  }
+
+  function updateSearchEnabled() {
+    document.getElementById('searchBtn').disabled = !(state.origin && state.dest);
+  }
+
+  function setOrigin(coords, label) {
+    state.origin = coords;
+    var el = document.getElementById('originStatus');
+    el.className = 'status-line ok';
+    el.textContent = (label || 'Ubicación cargada') + ' (' + coords.lat.toFixed(5) + ', ' + coords.lon.toFixed(5) + ')';
+    updateSearchEnabled();
+  }
+  function setDest(coords, label) {
+    state.dest = coords;
+    var el = document.getElementById('destStatus');
+    el.className = 'status-line ok';
+    el.textContent = (label || 'Destino cargado') + ' (' + coords.lat.toFixed(5) + ', ' + coords.lon.toFixed(5) + ')';
+    updateSearchEnabled();
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ lat: coords.lat, lon: coords.lon })); } catch (e) {}
+  }
+
+  document.getElementById('useMyLocation').addEventListener('click', function() {
+    var el = document.getElementById('originStatus');
+    el.className = 'status-line';
+    el.textContent = 'Ubicándote...';
+    getCurrentPosition().then(function(pos) {
+      setOrigin(pos, 'Tu ubicación');
+    }).catch(function(err) {
+      el.className = 'status-line err';
+      el.textContent = 'No pudimos usar tu ubicación (' + err.message + ').';
+    });
+  });
+
+  document.getElementById('openMapsOrigin').addEventListener('click', function() {
+    window.open('https://www.google.com/maps', '_blank');
+  });
+  document.getElementById('openMapsDest').addEventListener('click', function() {
+    window.open('https://www.google.com/maps', '_blank');
+  });
+
+  document.getElementById('originPaste').addEventListener('input', function(e) {
+    var parsed = parseMapsCoords(e.target.value);
+    if (parsed) setOrigin(parsed, 'Pegado');
+  });
+  document.getElementById('destPaste').addEventListener('input', function(e) {
+    var parsed = parseMapsCoords(e.target.value);
+    if (parsed) setDest(parsed, 'Pegado');
+  });
+
+  document.getElementById('searchBtn').addEventListener('click', function() {
+    if (!state.origin || !state.dest) return;
+    var btn = document.getElementById('searchBtn');
+    btn.disabled = true;
+    btn.textContent = 'Buscando...';
+    var el = document.getElementById('resultsArea');
+    el.innerHTML = '<p class="transit-loading">Buscando las mejores opciones...</p>';
+    fetchRoute(state.origin.lat, state.origin.lon, state.dest.lat, state.dest.lon)
+      .then(function(data) {
+        renderResults(data);
+      })
+      .catch(function(err) {
+        el.innerHTML = '<p class="transit-loading">No pudimos calcular la ruta (' + escapeHtml(err.message) + ').</p>';
+      })
+      .then(function() {
+        btn.disabled = false;
+        btn.textContent = 'Buscar viaje';
+      });
+  });
+
+  // Permite que otras apps abran TransportArte con el viaje precargado:
+  // ?fromLat=&fromLon=&toLat=&toLon=
+  (function initFromQuery() {
+    var params = new URLSearchParams(location.search);
+    var fromLat = parseFloat(params.get('fromLat'));
+    var fromLon = parseFloat(params.get('fromLon'));
+    var toLat = parseFloat(params.get('toLat'));
+    var toLon = parseFloat(params.get('toLon'));
+    var hasOrigin = !Number.isNaN(fromLat) && !Number.isNaN(fromLon);
+    var hasDest = !Number.isNaN(toLat) && !Number.isNaN(toLon);
+    if (hasOrigin) setOrigin({ lat: fromLat, lon: fromLon }, 'Recibido');
+    if (hasDest) setDest({ lat: toLat, lon: toLon }, 'Recibido');
+    if (hasOrigin && hasDest) {
+      setTimeout(function() { document.getElementById('searchBtn').click(); }, 50);
+    }
+  })();
+
+  document.getElementById('resultsArea').innerHTML = '<p class="empty-hint">Definí desde dónde salís y a dónde vas, y tocá "Buscar viaje".</p>';
+})();
+</script>
+</body>
+</html>
