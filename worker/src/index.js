@@ -60,6 +60,18 @@ function geocode(query) {
   })));
 }
 
+function reverseGeocode(lat, lon) {
+  const url = "https://nominatim.openstreetmap.org/reverse?" +
+    "lat=" + encodeURIComponent(lat) + "&lon=" + encodeURIComponent(lon) + "&format=jsonv2";
+  return fetch(url, {
+    headers: { "User-Agent": "TransportArte/1.0 (https://santiagososa.com.ar/transportarte/)" },
+    cf: { cacheTtl: 300, cacheEverything: true },
+  }).then((res) => {
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return res.json();
+  }).then((r) => ({ label: r.display_name || null }));
+}
+
 function fetchTripDetails(tripId) {
   return fetchOBA("trip-details-for-trip/" + encodeURIComponent(tripId) + ".json", {
     platform: "web", v: "", version: "1.0",
@@ -356,6 +368,18 @@ export default {
       try {
         const results = await geocode(q);
         return json({ code: 200, data: results });
+      } catch (err) {
+        return json({ code: 502, text: "No se pudo geocodificar: " + err.message }, 502);
+      }
+    }
+
+    if (url.pathname === "/reverse.json") {
+      const lat = parseFloat(url.searchParams.get("lat"));
+      const lon = parseFloat(url.searchParams.get("lon"));
+      if (Number.isNaN(lat) || Number.isNaN(lon)) return json({ code: 400, text: "Faltan lat/lon" }, 400);
+      try {
+        const result = await reverseGeocode(lat, lon);
+        return json({ code: 200, data: result });
       } catch (err) {
         return json({ code: 502, text: "No se pudo geocodificar: " + err.message }, 502);
       }

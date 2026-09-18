@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <style>
   :root {
     --radius: 14px;
@@ -240,6 +241,67 @@
     color: var(--muted);
     text-align: center;
   }
+
+  .map-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 60;
+    display: flex;
+    align-items: flex-end;
+  }
+  .map-sheet {
+    background: var(--surface);
+    width: 100%;
+    max-width: 560px;
+    margin: 0 auto;
+    border-radius: 20px 20px 0 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    max-height: 92vh;
+  }
+  .map-sheet-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .map-sheet-header span { font-family: 'Fraunces', Georgia, serif; font-weight: 600; font-size: 16px; }
+  .map-sheet-header button {
+    border: none;
+    background: var(--surface-2);
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    font-size: 15px;
+    cursor: pointer;
+    color: var(--muted);
+  }
+  .map-hint {
+    font-size: 11.5px;
+    color: var(--muted);
+    padding: 8px 16px 0;
+  }
+  #mapContainer { height: 52vh; width: 100%; }
+  .map-sheet-footer {
+    padding: 12px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--border);
+  }
+  .pin-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: 10px;
+    font-size: 12.5px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-top: 8px;
+  }
 </style>
 </head>
 <body>
@@ -259,6 +321,7 @@
       <div class="suggest-list" id="originSuggest" hidden></div>
     </div>
     <div class="status-line" id="originStatus">Sin definir todavía.</div>
+    <button class="pin-btn" id="pinOrigin" type="button">📍 Marcar en el mapa</button>
     <button class="link-toggle" id="originToggleCoords" type="button">¿Preferís pegar coordenadas o un link de Maps?</button>
     <div class="field" id="originCoordsField" hidden>
       <input type="text" id="originPaste" placeholder="-32,90 -68,84 o link de Maps">
@@ -273,6 +336,7 @@
       <div class="suggest-list" id="destSuggest" hidden></div>
     </div>
     <div class="status-line" id="destStatus">Sin definir todavía.</div>
+    <button class="pin-btn" id="pinDest" type="button">📍 Marcar en el mapa</button>
     <button class="link-toggle" id="destToggleCoords" type="button">¿Preferís pegar coordenadas o un link de Maps?</button>
     <div class="field" id="destCoordsField" hidden>
       <input type="text" id="destPaste" placeholder="-32,90 -68,84 o link de Maps">
@@ -286,8 +350,24 @@
 
 <footer class="about">Datos en vivo de Mendotran (OneBusAway). Esta página no reemplaza a la app oficial.</footer>
 
+<div class="map-overlay" id="mapOverlay" hidden>
+  <div class="map-sheet">
+    <div class="map-sheet-header">
+      <span id="mapSheetTitle">Marcar ubicación</span>
+      <button id="mapClose" type="button">✕</button>
+    </div>
+    <p class="map-hint">Tocá el mapa donde querés marcar el punto.</p>
+    <div id="mapContainer"></div>
+    <div class="map-sheet-footer">
+      <div class="status-line" id="mapPickedLabel">Todavía no tocaste el mapa.</div>
+      <button class="btn btn-primary btn-full" id="mapConfirmBtn" type="button" disabled>Usar este punto</button>
+    </div>
+  </div>
+</div>
+
 <div id="toastRoot"></div>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script>
 (function(){
   "use strict";
@@ -554,6 +634,82 @@
   document.getElementById('destPaste').addEventListener('input', function(e) {
     var parsed = parseMapsCoords(e.target.value);
     if (parsed) setDest(parsed, 'Coordenadas pegadas (' + parsed.lat.toFixed(5) + ', ' + parsed.lon.toFixed(5) + ')');
+  });
+
+  // ---------- Marcar en el mapa (Leaflet + tiles de OpenStreetMap) ----------
+  var leafletMap = null;
+  var pickedMarker = null;
+  var pickedCoords = null;
+  var mapTargetField = null; // 'origin' | 'dest'
+
+  function fetchReverseGeocode(lat, lon) {
+    var url = API_BASE + 'reverse.json?lat=' + lat + '&lon=' + lon;
+    return fetch(url).then(function(res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    }).then(function(body) {
+      if (body.code !== 200) throw new Error(body.text || ('código ' + body.code));
+      return body.data && body.data.label;
+    });
+  }
+
+  function setPickedPoint(lat, lon, skipMove) {
+    pickedCoords = { lat: lat, lon: lon };
+    if (pickedMarker) { pickedMarker.setLatLng([lat, lon]); }
+    else { pickedMarker = L.marker([lat, lon]).addTo(leafletMap); }
+    if (!skipMove) leafletMap.panTo([lat, lon]);
+    document.getElementById('mapConfirmBtn').disabled = false;
+    var labelEl = document.getElementById('mapPickedLabel');
+    labelEl.className = 'status-line';
+    labelEl.textContent = 'Buscando la dirección...';
+    fetchReverseGeocode(lat, lon).then(function(label) {
+      labelEl.className = 'status-line ok';
+      labelEl.textContent = label || (lat.toFixed(5) + ', ' + lon.toFixed(5));
+    }).catch(function() {
+      labelEl.className = 'status-line ok';
+      labelEl.textContent = lat.toFixed(5) + ', ' + lon.toFixed(5);
+    });
+  }
+
+  function openMapPicker(target) {
+    mapTargetField = target;
+    pickedCoords = null;
+    document.getElementById('mapConfirmBtn').disabled = true;
+    document.getElementById('mapPickedLabel').className = 'status-line';
+    document.getElementById('mapPickedLabel').textContent = 'Todavía no tocaste el mapa.';
+    document.getElementById('mapSheetTitle').textContent = target === 'origin' ? 'Marcar punto de partida' : 'Marcar destino';
+    document.getElementById('mapOverlay').hidden = false;
+
+    if (!leafletMap) {
+      leafletMap = L.map('mapContainer').setView([-32.89, -68.84], 13);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+      }).addTo(leafletMap);
+      leafletMap.on('click', function(e) { setPickedPoint(e.latlng.lat, e.latlng.lng); });
+    } else {
+      pickedMarker = null;
+    }
+    setTimeout(function() { leafletMap.invalidateSize(); }, 60);
+
+    var existing = target === 'origin' ? state.origin : state.dest;
+    if (existing) {
+      leafletMap.setView([existing.lat, existing.lon], 16);
+      setPickedPoint(existing.lat, existing.lon, true);
+    }
+  }
+
+  document.getElementById('pinOrigin').addEventListener('click', function() { openMapPicker('origin'); });
+  document.getElementById('pinDest').addEventListener('click', function() { openMapPicker('dest'); });
+  document.getElementById('mapClose').addEventListener('click', function() {
+    document.getElementById('mapOverlay').hidden = true;
+  });
+  document.getElementById('mapConfirmBtn').addEventListener('click', function() {
+    if (!pickedCoords) return;
+    var label = document.getElementById('mapPickedLabel').textContent;
+    if (mapTargetField === 'origin') setOrigin(pickedCoords, label);
+    else setDest(pickedCoords, label);
+    document.getElementById('mapOverlay').hidden = true;
   });
 
   document.getElementById('searchBtn').addEventListener('click', function() {
