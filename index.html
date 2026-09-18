@@ -119,6 +119,45 @@
   .status-line.ok { color: var(--success); font-weight: 700; }
   .status-line.err { color: var(--danger); font-weight: 700; }
 
+  .suggest-list {
+    position: absolute;
+    left: 0; right: 0; top: 100%;
+    margin-top: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+    z-index: 20;
+    max-height: 240px;
+    overflow-y: auto;
+  }
+  .suggest-list button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 10px 12px;
+    border: none;
+    background: transparent;
+    font-size: 13px;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .suggest-list button + button { border-top: 1px solid var(--border); }
+  .suggest-list button:hover, .suggest-list button:active { background: var(--surface-2); }
+  .suggest-loading { padding: 10px 12px; font-size: 12.5px; color: var(--muted); }
+
+  .link-toggle {
+    display: block;
+    background: none;
+    border: none;
+    color: var(--primary);
+    font-size: 11.5px;
+    font-weight: 700;
+    padding: 6px 0 0;
+    cursor: pointer;
+    text-align: left;
+  }
+
   .search-btn {
     display: block;
     width: 100%;
@@ -213,27 +252,31 @@
 <main>
   <div class="card">
     <h2>Desde dónde salís</h2>
-    <div class="btn-row">
-      <button class="btn btn-primary" id="useMyLocation" type="button">Usar mi ubicación</button>
-      <button class="btn btn-outline" id="openMapsOrigin" type="button">Abrir Google Maps</button>
-    </div>
-    <div class="field" style="margin-top:10px;">
-      <label>O pegá coordenadas / link de Maps</label>
-      <input type="text" id="originPaste" placeholder="-32,90 -68,84 o link de Maps">
+    <button class="btn btn-primary btn-full" id="useMyLocation" type="button">Usar mi ubicación</button>
+    <div class="field" style="margin-top:10px;position:relative;">
+      <label>O buscá otra dirección de partida</label>
+      <input type="text" id="originSearch" placeholder="Ej: San Martín 1234, o Shopping Palmares" autocomplete="off">
+      <div class="suggest-list" id="originSuggest" hidden></div>
     </div>
     <div class="status-line" id="originStatus">Sin definir todavía.</div>
+    <button class="link-toggle" id="originToggleCoords" type="button">¿Preferís pegar coordenadas o un link de Maps?</button>
+    <div class="field" id="originCoordsField" hidden>
+      <input type="text" id="originPaste" placeholder="-32,90 -68,84 o link de Maps">
+    </div>
   </div>
 
   <div class="card">
     <h2>A dónde vas</h2>
-    <div class="btn-row">
-      <button class="btn btn-outline" id="openMapsDest" type="button">Abrir Google Maps</button>
-    </div>
-    <div class="field" style="margin-top:10px;">
-      <label>Pegá coordenadas / link de Maps</label>
-      <input type="text" id="destPaste" placeholder="-32,90 -68,84 o link de Maps">
+    <div class="field" style="position:relative;">
+      <label>Buscá la dirección de destino</label>
+      <input type="text" id="destSearch" placeholder="Ej: San Martín 1234, o Shopping Palmares" autocomplete="off">
+      <div class="suggest-list" id="destSuggest" hidden></div>
     </div>
     <div class="status-line" id="destStatus">Sin definir todavía.</div>
+    <button class="link-toggle" id="destToggleCoords" type="button">¿Preferís pegar coordenadas o un link de Maps?</button>
+    <div class="field" id="destCoordsField" hidden>
+      <input type="text" id="destPaste" placeholder="-32,90 -68,84 o link de Maps">
+    </div>
   </div>
 
   <button class="search-btn" id="searchBtn" type="button" disabled>Buscar viaje</button>
@@ -413,14 +456,14 @@
     state.origin = coords;
     var el = document.getElementById('originStatus');
     el.className = 'status-line ok';
-    el.textContent = (label || 'Ubicación cargada') + ' (' + coords.lat.toFixed(5) + ', ' + coords.lon.toFixed(5) + ')';
+    el.textContent = label || ('Ubicación cargada (' + coords.lat.toFixed(5) + ', ' + coords.lon.toFixed(5) + ')');
     updateSearchEnabled();
   }
   function setDest(coords, label) {
     state.dest = coords;
     var el = document.getElementById('destStatus');
     el.className = 'status-line ok';
-    el.textContent = (label || 'Destino cargado') + ' (' + coords.lat.toFixed(5) + ', ' + coords.lon.toFixed(5) + ')';
+    el.textContent = label || ('Destino cargado (' + coords.lat.toFixed(5) + ', ' + coords.lon.toFixed(5) + ')');
     updateSearchEnabled();
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ lat: coords.lat, lon: coords.lon })); } catch (e) {}
   }
@@ -430,27 +473,87 @@
     el.className = 'status-line';
     el.textContent = 'Ubicándote...';
     getCurrentPosition().then(function(pos) {
-      setOrigin(pos, 'Tu ubicación');
+      setOrigin(pos, 'Tu ubicación (' + pos.lat.toFixed(5) + ', ' + pos.lon.toFixed(5) + ')');
     }).catch(function(err) {
       el.className = 'status-line err';
       el.textContent = 'No pudimos usar tu ubicación (' + err.message + ').';
     });
   });
 
-  document.getElementById('openMapsOrigin').addEventListener('click', function() {
-    window.open('https://www.google.com/maps', '_blank');
+  function fetchGeocode(q) {
+    var url = API_BASE + 'geocode.json?q=' + encodeURIComponent(q);
+    return fetch(url).then(function(res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    }).then(function(body) {
+      if (body.code !== 200) throw new Error(body.text || ('código ' + body.code));
+      return body.data;
+    });
+  }
+
+  function setupAddressSearch(inputId, suggestId, onPick) {
+    var input = document.getElementById(inputId);
+    var suggestBox = document.getElementById(suggestId);
+    var timer = null;
+    var requestId = 0;
+
+    input.addEventListener('input', function() {
+      var q = input.value.trim();
+      if (timer) clearTimeout(timer);
+      if (q.length < 3) { suggestBox.hidden = true; suggestBox.innerHTML = ''; return; }
+      timer = setTimeout(function() {
+        var myId = ++requestId;
+        suggestBox.hidden = false;
+        suggestBox.innerHTML = '<div class="suggest-loading">Buscando...</div>';
+        var query = /mendoza/i.test(q) ? q : (q + ', Mendoza, Argentina');
+        fetchGeocode(query).then(function(results) {
+          if (myId !== requestId) return;
+          if (!results.length) {
+            suggestBox.innerHTML = '<div class="suggest-loading">Sin resultados. Probá con más detalle, o pegá coordenadas.</div>';
+            return;
+          }
+          suggestBox.innerHTML = results.map(function(r, i) {
+            return '<button type="button" data-i="' + i + '">' + escapeHtml(r.label) + '</button>';
+          }).join('');
+          Array.prototype.forEach.call(suggestBox.querySelectorAll('button'), function(btn) {
+            btn.addEventListener('click', function() {
+              var r = results[parseInt(btn.getAttribute('data-i'), 10)];
+              input.value = r.label;
+              suggestBox.hidden = true;
+              onPick({ lat: r.lat, lon: r.lon }, r.label);
+            });
+          });
+        }).catch(function(err) {
+          if (myId !== requestId) return;
+          suggestBox.innerHTML = '<div class="suggest-loading">No se pudo buscar (' + escapeHtml(err.message) + ').</div>';
+        });
+      }, 450);
+    });
+
+    document.addEventListener('click', function(e) {
+      if (e.target !== input && !suggestBox.contains(e.target)) suggestBox.hidden = true;
+    });
+  }
+
+  setupAddressSearch('originSearch', 'originSuggest', function(coords, label) { setOrigin(coords, label); });
+  setupAddressSearch('destSearch', 'destSuggest', function(coords, label) { setDest(coords, label); });
+
+  document.getElementById('originToggleCoords').addEventListener('click', function() {
+    var f = document.getElementById('originCoordsField');
+    f.hidden = !f.hidden;
   });
-  document.getElementById('openMapsDest').addEventListener('click', function() {
-    window.open('https://www.google.com/maps', '_blank');
+  document.getElementById('destToggleCoords').addEventListener('click', function() {
+    var f = document.getElementById('destCoordsField');
+    f.hidden = !f.hidden;
   });
 
   document.getElementById('originPaste').addEventListener('input', function(e) {
     var parsed = parseMapsCoords(e.target.value);
-    if (parsed) setOrigin(parsed, 'Pegado');
+    if (parsed) setOrigin(parsed, 'Coordenadas pegadas (' + parsed.lat.toFixed(5) + ', ' + parsed.lon.toFixed(5) + ')');
   });
   document.getElementById('destPaste').addEventListener('input', function(e) {
     var parsed = parseMapsCoords(e.target.value);
-    if (parsed) setDest(parsed, 'Pegado');
+    if (parsed) setDest(parsed, 'Coordenadas pegadas (' + parsed.lat.toFixed(5) + ', ' + parsed.lon.toFixed(5) + ')');
   });
 
   document.getElementById('searchBtn').addEventListener('click', function() {

@@ -38,6 +38,28 @@ function fetchArrivals(stopId) {
   });
 }
 
+// ---------- Geocodificación (Nominatim / OpenStreetMap) ----------
+// Nominatim no manda Access-Control-Allow-Origin, así que lo proxeamos igual que a
+// Mendotran, agregando el User-Agent que pide su política de uso.
+const MENDOZA_VIEWBOX = "-69.3,-32.6,-68.5,-33.2"; // izq,arriba,der,abajo: sesga los resultados a Mendoza
+
+function geocode(query) {
+  const url = "https://nominatim.openstreetmap.org/search?" +
+    "q=" + encodeURIComponent(query) +
+    "&format=jsonv2&limit=6&countrycodes=ar&viewbox=" + MENDOZA_VIEWBOX + "&bounded=0";
+  return fetch(url, {
+    headers: { "User-Agent": "TransportArte/1.0 (https://santiagososa.com.ar/transportarte/)" },
+    cf: { cacheTtl: 300, cacheEverything: true },
+  }).then((res) => {
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return res.json();
+  }).then((list) => (list || []).map((r) => ({
+    label: r.display_name,
+    lat: parseFloat(r.lat),
+    lon: parseFloat(r.lon),
+  })));
+}
+
 function fetchTripDetails(tripId) {
   return fetchOBA("trip-details-for-trip/" + encodeURIComponent(tripId) + ".json", {
     platform: "web", v: "", version: "1.0",
@@ -325,6 +347,17 @@ export default {
         return await handleRoute(url);
       } catch (err) {
         return json({ code: 500, text: "Error interno: " + err.message }, 500);
+      }
+    }
+
+    if (url.pathname === "/geocode.json") {
+      const q = (url.searchParams.get("q") || "").trim();
+      if (!q) return json({ code: 400, text: "Falta el parámetro q" }, 400);
+      try {
+        const results = await geocode(q);
+        return json({ code: 200, data: results });
+      } catch (err) {
+        return json({ code: 502, text: "No se pudo geocodificar: " + err.message }, 502);
       }
     }
 
