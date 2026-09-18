@@ -85,7 +85,10 @@ function fetchTripDetails(tripId) {
       refByCode[code] = s;
     });
     return { stopTimes, codeById, refByCode };
-  }).catch(() => ({ stopTimes: [], codeById: {}, refByCode: {} }));
+  }).catch((err) => {
+    console.log("fetchTripDetails failed for " + tripId + ": " + err.message);
+    return { stopTimes: [], codeById: {}, refByCode: {} };
+  });
 }
 
 function haversine(lat1, lon1, lat2, lon2) {
@@ -311,7 +314,10 @@ async function handleRoute(url) {
     return json({ code: 502, text: "No se encontraron paradas cercanas: " + err.message }, 502);
   }
 
+  console.log("originStops: " + originStops.map((s) => s.name).join(",") + " | destStops: " + destStops.map((s) => s.name).join(","));
+
   const originResults = await buildStopArrivals(originStops);
+  console.log("origin arrivals counts: " + originResults.map((r) => r.stop.name + "=" + r.arrivals.length).join(", "));
   const direct = await findDirectCandidates(originResults, destStops, 5);
 
   if (direct.length) {
@@ -319,10 +325,12 @@ async function handleRoute(url) {
   }
 
   const destResults = await buildStopArrivals(destStops);
+  console.log("dest arrivals counts: " + destResults.map((r) => r.stop.name + "=" + r.arrivals.length).join(", "));
   const [reachable, coverage] = await Promise.all([
     buildReachableMap(originResults, 4),
-    buildCoverageMap(destResults, destStops, 4),
+    buildCoverageMap(destResults, destStops, 8),
   ]);
+  console.log("reachable codes: " + Object.keys(reachable).length + " | coverage codes: " + Object.keys(coverage).length);
   const transfer = findTwoLegCandidates(reachable, coverage, 5);
 
   if (transfer.length) {
