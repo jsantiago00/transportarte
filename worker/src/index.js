@@ -271,21 +271,46 @@ function buildCoverageMap(destResults, destStops, limit) {
   });
 }
 
+// Caminar una cuadra hasta otra parada para el segundo colectivo también cuenta como
+// transbordo válido - no hace falta que sea exactamente la misma parada donde bajaste.
+const WALK_SPEED_M_PER_MIN = 70; // paso tranquilo, con margen
+const MAX_WALK_METERS = 500; // ~6-7 min caminando
+
 function findTwoLegCandidates(reachable, coverage, limit) {
+  const coverageList = Object.keys(coverage).map((code) => Object.assign({ code }, coverage[code]));
   let candidates = [];
+
   Object.keys(reachable).forEach((code) => {
-    const cov = coverage[code];
-    if (!cov) return;
     const reach = reachable[code];
-    if (cov.boardTime < reach.arrivalTime + TRANSFER_BUFFER_MS) return;
-    candidates.push({
-      leg1Route: reach.route, leg1Headsign: reach.headsign,
-      originStop: reach.originStop, originTime: reach.originTime,
-      transferStop: reach.stopRef || cov.stopRef, transferArrival: reach.arrivalTime, transferBoard: cov.boardTime,
-      leg2Route: cov.route, leg2Headsign: cov.headsign,
-      destStop: cov.destStop, destTime: cov.destTime,
+    let best = null;
+
+    coverageList.forEach((cov) => {
+      let walkMeters = 0;
+      if (cov.code !== code) {
+        const rs = reach.stopRef, cs = cov.stopRef;
+        if (!rs || !cs || rs.lat == null || cs.lat == null) return;
+        walkMeters = haversine(parseFloat(rs.lat), parseFloat(rs.lon), parseFloat(cs.lat), parseFloat(cs.lon)) * 1000;
+        if (walkMeters > MAX_WALK_METERS) return;
+      }
+      const walkMs = (walkMeters / WALK_SPEED_M_PER_MIN) * 60000;
+      if (cov.boardTime < reach.arrivalTime + walkMs + TRANSFER_BUFFER_MS) return;
+      if (!best || cov.destTime < best.cov.destTime) best = { cov, walkMeters };
     });
+
+    if (best) {
+      candidates.push({
+        leg1Route: reach.route, leg1Headsign: reach.headsign,
+        originStop: reach.originStop, originTime: reach.originTime,
+        transferStop: reach.stopRef, transferArrival: reach.arrivalTime,
+        walkMeters: Math.round(best.walkMeters),
+        boardStop: best.walkMeters > 0 ? best.cov.stopRef : null,
+        transferBoard: best.cov.boardTime,
+        leg2Route: best.cov.route, leg2Headsign: best.cov.headsign,
+        destStop: best.cov.destStop, destTime: best.cov.destTime,
+      });
+    }
   });
+
   const cutoff = Date.now() - 30000;
   candidates = candidates.filter((c) => c.originTime > cutoff && c.transferBoard > cutoff);
   candidates.sort((a, b) => a.originTime - b.originTime);

@@ -213,6 +213,7 @@
     text-align: center;
   }
   .step-tag.alight { background: var(--text); opacity: 0.75; }
+  .step-tag.walk { background: var(--warning); width: 60px; }
   .step-body { flex: 1; min-width: 0; }
   .step-route { font-size: 13px; font-weight: 700; }
   .step-place { font-size: 12.5px; color: var(--text); }
@@ -480,10 +481,16 @@
     return candidates.map(function(c) {
       var mins = Math.round((c.originTime - now) / 60000);
       var transferLabel = c.transferStop ? (c.transferStop.address || c.transferStop.name) : 'la parada de trasbordo';
+      var walkStep = '';
+      if (c.walkMeters > 0 && c.boardStop) {
+        var walkMins = Math.max(1, Math.round(c.walkMeters / 70));
+        walkStep = journeyStep('Caminás', 'walk', '', { label: c.boardStop.address || c.boardStop.name, stop: c.boardStop }, '~' + c.walkMeters + ' m (unos ' + walkMins + ' min)');
+      }
       return '<div class="arrival convenient">' +
         '<div class="journey-head"><span class="step-route">' + escapeHtml(c.leg1Route) + ' · con transbordo</span><span class="journey-when">' + (mins <= 0 ? 'Ahora' : mins + ' min') + '</span></div>' +
         journeyStep('Subís', 'board', c.leg1Headsign, { label: c.originStop.address || c.originStop.name, stop: c.originStop }, 'Sale a las ' + fmtClockTime(c.originTime)) +
         journeyStep('Bajás', 'alight', '', { label: transferLabel, stop: c.transferStop }, 'Llegás ~' + fmtClockTime(c.transferArrival)) +
+        walkStep +
         journeyStep('Subís', 'board', c.leg2Route + ' · ' + c.leg2Headsign, null, 'Sale ~' + fmtClockTime(c.transferBoard)) +
         journeyStep('Bajás', 'alight', '', { label: c.destStop.address || c.destStop.name, stop: c.destStop }, 'Llegás ~' + fmtClockTime(c.destTime)) +
       '</div>';
