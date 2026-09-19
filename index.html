@@ -303,6 +303,32 @@
     cursor: pointer;
     margin-top: 8px;
   }
+  .both-picker-btn {
+    display: block;
+    width: 100%;
+    background: var(--surface);
+    border: 1.5px dashed var(--primary);
+    color: var(--primary-dark);
+    padding: 13px;
+    border-radius: 14px;
+    font-size: 14px;
+    font-weight: 800;
+    cursor: pointer;
+    margin-bottom: 16px;
+  }
+  .my-location-dot {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--primary);
+    border: 3px solid #fff;
+    box-shadow: 0 0 0 6px rgba(47,125,214,0.25), 0 2px 8px rgba(0,0,0,0.35);
+    animation: locationPulse 2.2s ease-out infinite;
+  }
+  @keyframes locationPulse {
+    0% { box-shadow: 0 0 0 4px rgba(47,125,214,0.35), 0 2px 8px rgba(0,0,0,0.35); }
+    100% { box-shadow: 0 0 0 12px rgba(47,125,214,0), 0 2px 8px rgba(0,0,0,0.35); }
+  }
 </style>
 </head>
 <body>
@@ -313,6 +339,7 @@
 </header>
 
 <main>
+  <button class="both-picker-btn" id="pickBothOnMap" type="button">🗺️ Elegir origen y destino en el mapa</button>
   <div class="card">
     <h2>Desde dónde salís</h2>
     <button class="btn btn-primary btn-full" id="useMyLocation" type="button">Usar mi ubicación</button>
@@ -357,11 +384,18 @@
       <span id="mapSheetTitle">Marcar ubicación</span>
       <button id="mapClose" type="button">✕</button>
     </div>
-    <p class="map-hint">Tocá el mapa donde querés marcar el punto.</p>
+    <p class="map-hint" id="mapHint">Tocá el mapa donde querés marcar el punto.</p>
     <div id="mapContainer"></div>
     <div class="map-sheet-footer">
-      <div class="status-line" id="mapPickedLabel">Todavía no tocaste el mapa.</div>
+      <div id="mapSingleLabelWrap">
+        <div class="status-line" id="mapPickedLabel">Todavía no tocaste el mapa.</div>
+      </div>
+      <div id="mapBothLabelWrap" hidden>
+        <div class="status-line" id="mapBothOriginLabel">Origen: tocá el mapa para marcarlo.</div>
+        <div class="status-line" id="mapBothDestLabel">Destino: —</div>
+      </div>
       <button class="btn btn-primary btn-full" id="mapConfirmBtn" type="button" disabled>Usar este punto</button>
+      <button class="link-toggle" id="mapRestartBoth" type="button" hidden>↺ Empezar de nuevo</button>
     </div>
   </div>
 </div>
@@ -643,11 +677,104 @@
     if (parsed) setDest(parsed, 'Coordenadas pegadas (' + parsed.lat.toFixed(5) + ', ' + parsed.lon.toFixed(5) + ')');
   });
 
-  // ---------- Marcar en el mapa (Leaflet + tiles de OpenStreetMap) ----------
+  // ---------- Marcar en el mapa (Leaflet + tiles de CARTO) ----------
   var leafletMap = null;
   var pickedMarker = null;
   var pickedCoords = null;
-  var mapTargetField = null; // 'origin' | 'dest'
+  var mapTargetField = null; // 'origin' | 'dest' | 'both'
+  var bothStep = 'origin'; // 'origin' | 'dest' | 'done'
+  var bothOriginCoords = null;
+  var bothDestCoords = null;
+  var bothOriginMarker = null;
+  var bothDestMarker = null;
+  var myLocationMarker = null;
+  var geoWatchId = null;
+
+  var TILE_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
+  function tileUrl() {
+    var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    return dark
+      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+      : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+  }
+
+  function pinIcon(color) {
+    return L.divIcon({
+      className: '',
+      html: '<div style="width:22px;height:22px;border-radius:50% 50% 50% 0;background:' + color +
+        ';border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35);transform:rotate(-45deg);"></div>',
+      iconSize: [22, 22],
+      iconAnchor: [11, 22]
+    });
+  }
+
+  function clearPickerMarkers() {
+    if (!leafletMap) return;
+    if (pickedMarker) { leafletMap.removeLayer(pickedMarker); pickedMarker = null; }
+    if (bothOriginMarker) { leafletMap.removeLayer(bothOriginMarker); bothOriginMarker = null; }
+    if (bothDestMarker) { leafletMap.removeLayer(bothDestMarker); bothDestMarker = null; }
+  }
+
+  function startLiveLocation() {
+    stopLiveLocation();
+    if (!navigator.geolocation) return;
+    geoWatchId = navigator.geolocation.watchPosition(function(pos) {
+      if (!leafletMap) return;
+      var lat = pos.coords.latitude, lon = pos.coords.longitude;
+      if (myLocationMarker) { myLocationMarker.setLatLng([lat, lon]); }
+      else {
+        myLocationMarker = L.marker([lat, lon], {
+          icon: L.divIcon({ className: 'my-location-dot', html: '', iconSize: [16, 16], iconAnchor: [8, 8] }),
+          zIndexOffset: 1000,
+          interactive: false
+        }).addTo(leafletMap);
+      }
+    }, function() { /* sin permiso o sin señal: seguimos sin el puntito */ }, {
+      enableHighAccuracy: true, maximumAge: 5000, timeout: 10000
+    });
+  }
+
+  function stopLiveLocation() {
+    if (geoWatchId != null && navigator.geolocation) navigator.geolocation.clearWatch(geoWatchId);
+    geoWatchId = null;
+    if (myLocationMarker && leafletMap) { leafletMap.removeLayer(myLocationMarker); }
+    myLocationMarker = null;
+  }
+
+  function updateBothLabel(kind, text, ok) {
+    var el = document.getElementById(kind === 'origin' ? 'mapBothOriginLabel' : 'mapBothDestLabel');
+    el.className = 'status-line' + (ok ? ' ok' : '');
+    el.textContent = (kind === 'origin' ? 'Origen: ' : 'Destino: ') + text;
+  }
+
+  function reverseLabelBoth(kind, lat, lon) {
+    updateBothLabel(kind, 'buscando la dirección...', false);
+    fetchReverseGeocode(lat, lon).then(function(label) {
+      updateBothLabel(kind, label || (lat.toFixed(5) + ', ' + lon.toFixed(5)), true);
+    }).catch(function() {
+      updateBothLabel(kind, lat.toFixed(5) + ', ' + lon.toFixed(5), true);
+    });
+  }
+
+  function handleBothClick(lat, lon) {
+    if (bothStep === 'origin') {
+      bothOriginCoords = { lat: lat, lon: lon };
+      if (bothOriginMarker) bothOriginMarker.setLatLng([lat, lon]);
+      else bothOriginMarker = L.marker([lat, lon], { icon: pinIcon('#1f9d55') }).addTo(leafletMap);
+      reverseLabelBoth('origin', lat, lon);
+      bothStep = 'dest';
+      document.getElementById('mapSheetTitle').textContent = 'Ahora tocá tu destino';
+    } else {
+      bothDestCoords = { lat: lat, lon: lon };
+      if (bothDestMarker) bothDestMarker.setLatLng([lat, lon]);
+      else bothDestMarker = L.marker([lat, lon], { icon: pinIcon('#d92d20') }).addTo(leafletMap);
+      reverseLabelBoth('dest', lat, lon);
+      bothStep = 'done';
+      document.getElementById('mapSheetTitle').textContent = 'Ajustá si hace falta, o confirmá';
+    }
+    document.getElementById('mapConfirmBtn').disabled = !(bothOriginCoords && bothDestCoords);
+    document.getElementById('mapRestartBoth').hidden = !(bothOriginCoords || bothDestCoords);
+  }
 
   function fetchReverseGeocode(lat, lon) {
     var url = API_BASE + 'reverse.json?lat=' + lat + '&lon=' + lon;
@@ -663,7 +790,7 @@
   function setPickedPoint(lat, lon, skipMove) {
     pickedCoords = { lat: lat, lon: lon };
     if (pickedMarker) { pickedMarker.setLatLng([lat, lon]); }
-    else { pickedMarker = L.marker([lat, lon]).addTo(leafletMap); }
+    else { pickedMarker = L.marker([lat, lon], { icon: pinIcon('#2f7dd6') }).addTo(leafletMap); }
     if (!skipMove) leafletMap.panTo([lat, lon]);
     document.getElementById('mapConfirmBtn').disabled = false;
     var labelEl = document.getElementById('mapPickedLabel');
@@ -680,43 +807,93 @@
 
   function openMapPicker(target) {
     mapTargetField = target;
-    pickedCoords = null;
+    var isBoth = target === 'both';
+
+    document.getElementById('mapSingleLabelWrap').hidden = isBoth;
+    document.getElementById('mapBothLabelWrap').hidden = !isBoth;
+    document.getElementById('mapRestartBoth').hidden = true;
     document.getElementById('mapConfirmBtn').disabled = true;
-    document.getElementById('mapPickedLabel').className = 'status-line';
-    document.getElementById('mapPickedLabel').textContent = 'Todavía no tocaste el mapa.';
-    document.getElementById('mapSheetTitle').textContent = target === 'origin' ? 'Marcar punto de partida' : 'Marcar destino';
+    document.getElementById('mapConfirmBtn').textContent = isBoth ? 'Usar estos puntos' : 'Usar este punto';
+    document.getElementById('mapHint').textContent = isBoth
+      ? 'Primero tocá tu punto de partida, después el destino. Podés tocar de nuevo para ajustar el destino.'
+      : 'Tocá el mapa donde querés marcar el punto.';
     document.getElementById('mapOverlay').hidden = false;
+
+    clearPickerMarkers();
+
+    if (isBoth) {
+      bothStep = 'origin';
+      bothOriginCoords = null;
+      bothDestCoords = null;
+      updateBothLabel('origin', 'tocá el mapa para marcarlo.', false);
+      updateBothLabel('dest', '—', false);
+      document.getElementById('mapSheetTitle').textContent = 'Tocá tu punto de partida';
+    } else {
+      pickedCoords = null;
+      document.getElementById('mapPickedLabel').className = 'status-line';
+      document.getElementById('mapPickedLabel').textContent = 'Todavía no tocaste el mapa.';
+      document.getElementById('mapSheetTitle').textContent = target === 'origin' ? 'Marcar punto de partida' : 'Marcar destino';
+    }
 
     if (!leafletMap) {
       leafletMap = L.map('mapContainer').setView([-32.89, -68.84], 13);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+      L.tileLayer(tileUrl(), {
+        maxZoom: 20,
+        subdomains: 'abcd',
+        attribution: TILE_ATTRIBUTION
       }).addTo(leafletMap);
-      leafletMap.on('click', function(e) { setPickedPoint(e.latlng.lat, e.latlng.lng); });
-    } else {
-      pickedMarker = null;
+      leafletMap.on('click', function(e) {
+        if (mapTargetField === 'both') handleBothClick(e.latlng.lat, e.latlng.lng);
+        else setPickedPoint(e.latlng.lat, e.latlng.lng);
+      });
     }
     setTimeout(function() { leafletMap.invalidateSize(); }, 60);
 
-    var existing = target === 'origin' ? state.origin : state.dest;
-    if (existing) {
-      leafletMap.setView([existing.lat, existing.lon], 16);
-      setPickedPoint(existing.lat, existing.lon, true);
+    if (!isBoth) {
+      var existing = target === 'origin' ? state.origin : state.dest;
+      if (existing) {
+        leafletMap.setView([existing.lat, existing.lon], 16);
+        setPickedPoint(existing.lat, existing.lon, true);
+      }
     }
+
+    startLiveLocation();
+  }
+
+  function closeMapSheet() {
+    document.getElementById('mapOverlay').hidden = true;
+    stopLiveLocation();
   }
 
   document.getElementById('pinOrigin').addEventListener('click', function() { openMapPicker('origin'); });
   document.getElementById('pinDest').addEventListener('click', function() { openMapPicker('dest'); });
-  document.getElementById('mapClose').addEventListener('click', function() {
-    document.getElementById('mapOverlay').hidden = true;
+  document.getElementById('pickBothOnMap').addEventListener('click', function() { openMapPicker('both'); });
+  document.getElementById('mapClose').addEventListener('click', closeMapSheet);
+  document.getElementById('mapRestartBoth').addEventListener('click', function() {
+    clearPickerMarkers();
+    bothStep = 'origin';
+    bothOriginCoords = null;
+    bothDestCoords = null;
+    updateBothLabel('origin', 'tocá el mapa para marcarlo.', false);
+    updateBothLabel('dest', '—', false);
+    document.getElementById('mapSheetTitle').textContent = 'Tocá tu punto de partida';
+    document.getElementById('mapConfirmBtn').disabled = true;
+    document.getElementById('mapRestartBoth').hidden = true;
   });
   document.getElementById('mapConfirmBtn').addEventListener('click', function() {
-    if (!pickedCoords) return;
-    var label = document.getElementById('mapPickedLabel').textContent;
-    if (mapTargetField === 'origin') setOrigin(pickedCoords, label);
-    else setDest(pickedCoords, label);
-    document.getElementById('mapOverlay').hidden = true;
+    if (mapTargetField === 'both') {
+      if (!bothOriginCoords || !bothDestCoords) return;
+      var originLabel = document.getElementById('mapBothOriginLabel').textContent.replace(/^Origen:\s*/, '');
+      var destLabel = document.getElementById('mapBothDestLabel').textContent.replace(/^Destino:\s*/, '');
+      setOrigin(bothOriginCoords, originLabel);
+      setDest(bothDestCoords, destLabel);
+    } else {
+      if (!pickedCoords) return;
+      var label = document.getElementById('mapPickedLabel').textContent;
+      if (mapTargetField === 'origin') setOrigin(pickedCoords, label);
+      else setDest(pickedCoords, label);
+    }
+    closeMapSheet();
   });
 
   document.getElementById('searchBtn').addEventListener('click', function() {
