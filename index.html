@@ -126,59 +126,10 @@
     justify-content: center;
   }
 
-  .point-chip {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    width: 100%;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 11px 12px;
-    font-size: 13.5px;
-    font-weight: 600;
-    color: var(--muted);
-    cursor: pointer;
-    text-align: left;
-  }
-  .point-chip + .point-chip { margin-top: 7px; }
-  .point-chip.filled { color: var(--text); font-weight: 700; }
-  .point-chip.armed { outline: 2px solid var(--primary); outline-offset: -2px; }
-  .chip-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-  .chip-dot-origin { background: var(--success); }
-  .chip-dot-dest { background: var(--danger); }
-  .chip-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
   .sheet-hint {
-    margin: 8px 2px 0;
+    margin: 2px 2px 0;
     font-size: 11.5px;
     font-weight: 700;
-    color: var(--muted);
-  }
-
-  .picker-popover {
-    margin-top: 8px;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 14px;
-    max-height: 42vh;
-    overflow-y: auto;
-  }
-  .popover-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 10px;
-  }
-  .popover-head span { font-family: 'Fraunces', Georgia, serif; font-weight: 600; font-size: 15px; }
-  .popover-head button {
-    border: none;
-    background: var(--surface);
-    width: 28px; height: 28px;
-    border-radius: 50%;
-    font-size: 14px;
-    cursor: pointer;
     color: var(--muted);
   }
 
@@ -192,6 +143,7 @@
     background: var(--surface);
     color: var(--text);
   }
+  .field input[type=text].armed { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(47,125,214,0.22); }
   .btn {
     border: none;
     padding: 11px 14px;
@@ -232,18 +184,6 @@
   .suggest-list button + button { border-top: 1px solid var(--border); }
   .suggest-list button:hover, .suggest-list button:active { background: var(--surface-2); }
   .suggest-loading { padding: 10px 12px; font-size: 12.5px; color: var(--muted); }
-
-  .link-toggle {
-    display: block;
-    background: none;
-    border: none;
-    color: var(--primary);
-    font-size: 11.5px;
-    font-weight: 700;
-    padding: 6px 0 0;
-    cursor: pointer;
-    text-align: left;
-  }
 
   .bottom-card {
     position: fixed;
@@ -410,32 +350,20 @@
     <span class="sheet-chevron" id="sheetChevron">Minimizar <span class="arrow">▴</span></span>
   </button>
   <div id="sheetBody">
-    <button class="point-chip" id="originChip" type="button">
-      <span class="chip-dot chip-dot-origin"></span>
-      <span class="chip-text" id="originChipText">Elegí tu punto de partida</span>
-    </button>
-    <button class="point-chip" id="destChip" type="button">
-      <span class="chip-dot chip-dot-dest"></span>
-      <span class="chip-text" id="destChipText">Elegí tu destino</span>
-    </button>
-    <p class="sheet-hint" id="mapInstruction">Tocá un botón de arriba, o directamente el mapa, para elegir tus puntos. Tocando un pin puesto en el mapa lo borrás para volver a marcarlo.</p>
-
-    <div class="picker-popover" id="pickerPopover" hidden>
-      <div class="popover-head">
-        <span id="popoverTitle">Origen</span>
-        <button id="popoverClose" type="button">✕</button>
-      </div>
-      <button class="btn btn-primary btn-full" id="useMyLocation" type="button">Usar mi ubicación</button>
-      <div class="field" style="margin-top:10px;">
-        <label id="popoverSearchLabel">Buscá una dirección</label>
-        <input type="text" id="pointSearch" placeholder="Ej: San Martín 1234, o Shopping Palmares" autocomplete="off">
-        <div class="suggest-list" id="pointSuggest" hidden></div>
-      </div>
-      <button class="link-toggle" id="pointToggleCoords" type="button">¿Preferís pegar coordenadas o un link de Maps?</button>
-      <div class="field" id="pointCoordsField" hidden>
-        <input type="text" id="pointPaste" placeholder="-32,90 -68,84 o link de Maps">
-      </div>
+    <div class="field">
+      <label>Origen</label>
+      <input type="text" id="originSearch" placeholder="Buscá una dirección, o tocá el mapa" autocomplete="off">
+      <div class="suggest-list" id="originSuggest" hidden></div>
     </div>
+    <button class="btn btn-outline btn-full" id="useMyLocation" type="button" style="margin-bottom:10px;">📍 Mi ubicación actual</button>
+
+    <div class="field">
+      <label>Destino</label>
+      <input type="text" id="destSearch" placeholder="Buscá una dirección, o tocá el mapa" autocomplete="off">
+      <div class="suggest-list" id="destSuggest" hidden></div>
+    </div>
+
+    <p class="sheet-hint" id="mapInstruction">Tocá un campo, o directamente el mapa, para elegir tus puntos. Tocando un pin puesto en el mapa lo borrás para volver a marcarlo.</p>
   </div>
 
   <button class="sheet-summary" id="resultsSummary" type="button" hidden>
@@ -499,26 +427,6 @@
     try { saved = localStorage.getItem(THEME_KEY); } catch (e) {}
     applyTheme(saved);
   })();
-
-  function parseMapsCoords(text) {
-    text = (text || '').trim();
-    if (!text) return null;
-    var esMatch = text.match(/^(-?\d{1,3},\d+)\s*,?\s+(-?\d{1,3},\d+)$/) || text.match(/^(-?\d{1,3},\d+)\s*,\s*(-?\d{1,3},\d+)$/);
-    if (esMatch) {
-      return { lat: parseFloat(esMatch[1].replace(',', '.')), lon: parseFloat(esMatch[2].replace(',', '.')) };
-    }
-    var patterns = [
-      /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/,
-      /[?&](?:q|query)=(-?\d+\.\d+),(-?\d+\.\d+)/,
-      /@(-?\d+\.\d+),(-?\d+\.\d+)/,
-      /^(-?\d{1,3}\.\d+)[\s,]+(-?\d{1,3}\.\d+)$/
-    ];
-    for (var i = 0; i < patterns.length; i++) {
-      var m = text.match(patterns[i]);
-      if (m) return { lat: parseFloat(m[1]), lon: parseFloat(m[2]) };
-    }
-    return null;
-  }
 
   function getCurrentPosition() {
     return new Promise(function(resolve, reject) {
@@ -741,7 +649,6 @@
   var myLocationMarker = null;
   var geoWatchId = null;
   var armedTarget = null; // 'origin' | 'dest' | null
-  var popoverTarget = null;
   var routeLineLayers = [];
 
   // Decodifica un polyline de Google (el formato que usa OneBusAway para el
@@ -915,30 +822,29 @@
   function updateSheetSummary() {
     var el = document.getElementById('sheetSummaryText');
     if (!state.origin && !state.dest) { el.textContent = 'Elegí tu origen y destino'; return; }
-    var o = state.origin ? document.getElementById('originChipText').textContent : '¿Origen?';
-    var d = state.dest ? document.getElementById('destChipText').textContent : '¿Destino?';
+    var o = state.origin ? document.getElementById('originSearch').value : '¿Origen?';
+    var d = state.dest ? document.getElementById('destSearch').value : '¿Destino?';
     el.textContent = o + '  →  ' + d;
   }
 
-  function setChipText(target, text, filled) {
-    var chip = document.getElementById(target === 'origin' ? 'originChip' : 'destChip');
-    var textEl = document.getElementById(target === 'origin' ? 'originChipText' : 'destChipText');
-    textEl.textContent = text;
-    chip.classList.toggle('filled', !!filled);
+  // Actualiza sólo el texto mostrado en el campo (usado tanto al fijar un
+  // punto como al llegar la dirección "linda" de la geocodificación inversa).
+  function setFieldValue(target, text) {
+    document.getElementById(target === 'origin' ? 'originSearch' : 'destSearch').value = text;
     updateSheetSummary();
   }
 
   // Tocar el pin puesto en el mapa lo borra y arma ese mismo color para el
-  // próximo toque - así se puede corregir un punto sin pasar por el popover.
+  // próximo toque - así se puede corregir un punto sin pasar por el campo.
   function clearPoint(target) {
     if (target === 'origin') {
       state.origin = null;
       if (originMarker) { leafletMap.removeLayer(originMarker); originMarker = null; }
-      setChipText('origin', 'Elegí tu punto de partida', false);
+      setFieldValue('origin', '');
     } else {
       state.dest = null;
       if (destMarker) { leafletMap.removeLayer(destMarker); destMarker = null; }
-      setChipText('dest', 'Elegí tu destino', false);
+      setFieldValue('dest', '');
     }
     updateSearchEnabled();
     clearRouteLines();
@@ -976,8 +882,8 @@
 
   function armTarget(target) {
     armedTarget = target;
-    document.getElementById('originChip').classList.toggle('armed', target === 'origin');
-    document.getElementById('destChip').classList.toggle('armed', target === 'dest');
+    document.getElementById('originSearch').classList.toggle('armed', target === 'origin');
+    document.getElementById('destSearch').classList.toggle('armed', target === 'dest');
     var hint = document.getElementById('mapInstruction');
     if (target === 'origin') hint.textContent = 'Tocá el mapa para marcar tu punto de partida.';
     else if (target === 'dest') hint.textContent = 'Ahora tocá el mapa para marcar tu destino.';
@@ -999,14 +905,14 @@
 
   function setOrigin(coords, label) {
     state.origin = coords;
-    setChipText('origin', label || defaultCoordLabel(coords), true);
+    setFieldValue('origin', label || defaultCoordLabel(coords));
     placeMarker('origin', coords);
     updateSearchEnabled();
     onPointSet('origin');
   }
   function setDest(coords, label) {
     state.dest = coords;
-    setChipText('dest', label || defaultCoordLabel(coords), true);
+    setFieldValue('dest', label || defaultCoordLabel(coords));
     placeMarker('dest', coords);
     updateSearchEnabled();
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ lat: coords.lat, lon: coords.lon })); } catch (e) {}
@@ -1018,9 +924,9 @@
     if (target === 'origin') setOrigin(coords, 'Buscando la dirección...');
     else setDest(coords, 'Buscando la dirección...');
     fetchReverseGeocode(lat, lon).then(function(label) {
-      setChipText(target, label || defaultCoordLabel(coords), true);
+      setFieldValue(target, label || defaultCoordLabel(coords));
     }).catch(function() {
-      setChipText(target, defaultCoordLabel(coords), true);
+      setFieldValue(target, defaultCoordLabel(coords));
     });
   }
 
@@ -1029,27 +935,10 @@
     pickPointFromMap(armedTarget, e.latlng.lat, e.latlng.lng);
   });
 
-  // ---------- Popover: buscar dirección / pegar coordenadas / usar mi ubicación ----------
-  function openPopover(target) {
-    armTarget(target);
-    popoverTarget = target;
-    document.getElementById('popoverTitle').textContent = target === 'origin' ? 'Tu punto de partida' : 'Tu destino';
-    document.getElementById('useMyLocation').hidden = (target !== 'origin');
-    document.getElementById('popoverSearchLabel').textContent = target === 'origin' ? 'Buscá tu dirección de partida' : 'Buscá la dirección de destino';
-    document.getElementById('pointSearch').value = '';
-    document.getElementById('pointSuggest').hidden = true;
-    document.getElementById('pointSuggest').innerHTML = '';
-    document.getElementById('pointCoordsField').hidden = true;
-    document.getElementById('pointPaste').value = '';
-    document.getElementById('pickerPopover').hidden = false;
-  }
-  function closePopover() {
-    document.getElementById('pickerPopover').hidden = true;
-  }
-
-  document.getElementById('originChip').addEventListener('click', function() { openPopover('origin'); });
-  document.getElementById('destChip').addEventListener('click', function() { openPopover('dest'); });
-  document.getElementById('popoverClose').addEventListener('click', closePopover);
+  // Tocar cualquiera de los dos campos arma ese punto para el próximo toque
+  // en el mapa, igual que antes lo hacían los chips.
+  document.getElementById('originSearch').addEventListener('focus', function() { armTarget('origin'); });
+  document.getElementById('destSearch').addEventListener('focus', function() { armTarget('dest'); });
 
   document.getElementById('useMyLocation').addEventListener('click', function() {
     var btn = this;
@@ -1057,12 +946,11 @@
     btn.textContent = 'Ubicándote...';
     getCurrentPosition().then(function(pos) {
       setOrigin(pos, 'Tu ubicación (' + pos.lat.toFixed(5) + ', ' + pos.lon.toFixed(5) + ')');
-      closePopover();
     }).catch(function(err) {
       toast('No pudimos usar tu ubicación (' + err.message + ').');
     }).then(function() {
       btn.disabled = false;
-      btn.textContent = 'Usar mi ubicación';
+      btn.textContent = '📍 Mi ubicación actual';
     });
   });
 
@@ -1084,7 +972,7 @@
         fetchGeocode(query).then(function(results) {
           if (myId !== requestId) return;
           if (!results.length) {
-            suggestBox.innerHTML = '<div class="suggest-loading">Sin resultados. Probá con más detalle, o pegá coordenadas.</div>';
+            suggestBox.innerHTML = '<div class="suggest-loading">Sin resultados. Probá con más detalle, o tocá el mapa directamente.</div>';
             return;
           }
           suggestBox.innerHTML = results.map(function(r, i) {
@@ -1110,24 +998,8 @@
     });
   }
 
-  setupAddressSearch('pointSearch', 'pointSuggest', function(coords, label) {
-    if (popoverTarget === 'origin') setOrigin(coords, label);
-    else setDest(coords, label);
-    closePopover();
-  });
-
-  document.getElementById('pointToggleCoords').addEventListener('click', function() {
-    var f = document.getElementById('pointCoordsField');
-    f.hidden = !f.hidden;
-  });
-  document.getElementById('pointPaste').addEventListener('input', function(e) {
-    var parsed = parseMapsCoords(e.target.value);
-    if (!parsed) return;
-    var label = 'Coordenadas pegadas (' + parsed.lat.toFixed(5) + ', ' + parsed.lon.toFixed(5) + ')';
-    if (popoverTarget === 'origin') setOrigin(parsed, label);
-    else setDest(parsed, label);
-    closePopover();
-  });
+  setupAddressSearch('originSearch', 'originSuggest', function(coords, label) { setOrigin(coords, label); });
+  setupAddressSearch('destSearch', 'destSuggest', function(coords, label) { setDest(coords, label); });
 
   document.getElementById('searchBtn').addEventListener('click', function() {
     if (!state.origin || !state.dest) return;
