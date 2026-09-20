@@ -816,29 +816,18 @@
     }).catch(function() { /* sin recorrido disponible para este tramo */ });
   }
 
-  // Ruta peatonal real (siguiendo calles) vía OSRM, que ofrece un perfil "foot"
-  // público y sin API key. Si falla (sin señal, fuera de cobertura), cae a una
-  // línea recta entre los dos puntos para no dejar el tramo sin dibujar.
-  function fetchWalkRoute(from, to) {
-    var url = 'https://router.project-osrm.org/route/v1/foot/' + from.lon + ',' + from.lat + ';' + to.lon + ',' + to.lat + '?overview=full&geometries=geojson';
-    return fetch(url).then(function(res) {
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      return res.json();
-    }).then(function(body) {
-      if (body.code !== 'Ok' || !body.routes || !body.routes.length) throw new Error('sin ruta a pie');
-      return body.routes[0].geometry.coordinates.map(function(p) { return [p[1], p[0]]; });
-    });
-  }
-
-  // Línea punteada para los tramos a pie: origen -> parada de subida,
-  // caminata de transbordo, y parada de bajada -> destino real.
+  // Línea punteada (recta) para los tramos a pie: origen -> parada de subida,
+  // caminata de transbordo, y parada de bajada -> destino real. Probamos
+  // ruteo peatonal real vía OSRM, pero en zonas con poco detalle peatonal en
+  // OpenStreetMap terminaba desviándose por avenidas grandes en vez de cortar
+  // por las calles internas - una línea recta, aunque no siga la vereda
+  // exacta, es más honesta que un desvío que parece real pero no lo es.
   function drawWalkLine(from, to, boundsPoints) {
     if (!from || !to || from.lat == null || to.lat == null) return Promise.resolve();
-    var straight = [[from.lat, from.lon], [to.lat, to.lon]];
-    return fetchWalkRoute(from, to).catch(function() { return straight; }).then(function(coords) {
-      addRouteLayer(L.polyline(coords, { color: '#b7791f', weight: 3.5, opacity: 0.9, dashArray: '1, 11', lineCap: 'round' }));
-      boundsPoints.push.apply(boundsPoints, coords);
-    });
+    var pts = [[from.lat, from.lon], [to.lat, to.lon]];
+    addRouteLayer(L.polyline(pts, { color: '#b7791f', weight: 3.5, opacity: 0.9, dashArray: '1, 11', lineCap: 'round' }));
+    boundsPoints.push.apply(boundsPoints, pts);
+    return Promise.resolve();
   }
 
   function drawStopMarker(stop, color, label, boundsPoints) {
