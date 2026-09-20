@@ -120,14 +120,32 @@ function haversine(lat1, lon1, lat2, lon2) {
 // en vez de cortar a un top-N general que mezcla paradas de otras líneas.
 const MAX_NEARBY_STOPS = 15;
 
+// stops-for-location.json de Mendotran es inconsistente: para el mismo centro,
+// una parada puede aparecer con un recuadro de búsqueda chico y desaparecer con
+// uno más grande (verificado con un caso real: aparece hasta latSpan/lonSpan
+// 0.015 y desaparece de 0.018 en adelante, sin relación con la cantidad total
+// de paradas devueltas). No hay un tamaño "seguro" único, así que pedimos dos
+// tamaños distintos y combinamos lo que devuelva cada uno.
+function fetchStopsForLocation(lat, lon) {
+  return Promise.all([
+    fetchOBA("stops-for-location.json", { lat, lon, latSpan: 0.012, lonSpan: 0.012 }),
+    fetchOBA("stops-for-location.json", { lat, lon, latSpan: 0.025, lonSpan: 0.025 }),
+  ]).then(([small, big]) => {
+    const byId = {};
+    [small, big].forEach((data) => {
+      (data.list || data.stops || []).forEach((s) => { byId[s.id] = s; });
+    });
+    return Object.values(byId);
+  });
+}
+
 // Devuelve las paradas más cercanas a (lat, lon), cada una con walkMeters: la distancia
 // a pie hasta ese punto. Si maxMeters está definido, prioriza las que caen dentro de ese
 // radio (para poder ofrecer "caminá hasta acá"); si ninguna entra, no descarta todo el
 // resultado, sino que sigue con las más cercanas igual, aunque estén más lejos.
 function findNearestStops(lat, lon, fallbackLimit, maxMeters) {
-  return fetchOBA("stops-for-location.json", { lat, lon, latSpan: 0.02, lonSpan: 0.02 })
-    .then((data) => {
-      const list = data.list || data.stops || [];
+  return fetchStopsForLocation(lat, lon)
+    .then((list) => {
       if (!list.length) throw new Error("Sin paradas cercanas");
       const withDist = list
         .map((s) => ({ stop: s, meters: haversine(lat, lon, s.lat, s.lon) * 1000 }))
