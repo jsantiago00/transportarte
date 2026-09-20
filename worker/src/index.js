@@ -35,6 +35,18 @@ function fetchOBA(path, params) {
 function fetchArrivals(stopId) {
   return fetchOBA("arrivals-and-departures-for-stop/" + encodeURIComponent(stopId) + ".json", {
     platform: "web", v: "", minutesBefore: 0, minutesAfter: 65, version: "1.0",
+  }).then((data) => {
+    // El shapeId (para dibujar el recorrido real del colectivo) viene en
+    // references.trips, no en cada arribo - lo copiamos a cada arribo para que
+    // el resto del código no tenga que andar cruzando ambas listas.
+    const shapeIdByTrip = {};
+    ((data.references && data.references.trips) || []).forEach((t) => {
+      if (t.shapeId) shapeIdByTrip[t.id] = t.shapeId;
+    });
+    (((data.entry && data.entry.arrivalsAndDepartures)) || []).forEach((a) => {
+      a.shapeId = shapeIdByTrip[a.tripId] || null;
+    });
+    return data;
   });
 }
 
@@ -189,6 +201,7 @@ function findDirectCandidates(originResults, destStops, limit) {
       candidates.push({
         route: a.routeShortName || a.routeId || "",
         headsign: a.tripHeadsign || "",
+        shapeId: a.shapeId || null,
         originStop: r.item.stop,
         originTime: originPredicted,
         originWalkMeters,
@@ -241,6 +254,7 @@ function buildReachableMap(originResults, limit) {
             arrivalTime,
             route: a.routeShortName || a.routeId || "",
             headsign: a.tripHeadsign || "",
+            shapeId: a.shapeId || null,
             originStop: r.item.stop,
             originTime: originPredicted,
           };
@@ -282,6 +296,7 @@ function buildCoverageMap(destResults, destStops, limit) {
           boardTime: destPredicted - (destOffset - stopTimes[j].arrivalTime) * 1000,
           route: a.routeShortName || a.routeId || "",
           headsign: a.tripHeadsign || "",
+          shapeId: a.shapeId || null,
           destStop: destCodes[destCode],
           destTime: destPredicted,
         };
@@ -325,13 +340,13 @@ function findTwoLegCandidates(reachable, coverage, limit) {
       const destWalkMeters = (best.cov.destStop && best.cov.destStop.walkMeters) || 0;
       const destWalkMs = (destWalkMeters / WALK_SPEED_M_PER_MIN) * 60000;
       candidates.push({
-        leg1Route: reach.route, leg1Headsign: reach.headsign,
+        leg1Route: reach.route, leg1Headsign: reach.headsign, leg1ShapeId: reach.shapeId,
         originStop: reach.originStop, originTime: reach.originTime, originWalkMeters,
         transferStop: reach.stopRef, transferArrival: reach.arrivalTime,
         walkMeters: transferWalkMeters,
         boardStop: transferWalkMeters > 0 ? best.cov.stopRef : null,
         transferBoard: best.cov.boardTime,
-        leg2Route: best.cov.route, leg2Headsign: best.cov.headsign,
+        leg2Route: best.cov.route, leg2Headsign: best.cov.headsign, leg2ShapeId: best.cov.shapeId,
         destStop: best.cov.destStop, destTime: best.cov.destTime, destWalkMeters,
         arrivalTime: best.cov.destTime + destWalkMs,
         totalWalkMeters: originWalkMeters + transferWalkMeters + destWalkMeters,

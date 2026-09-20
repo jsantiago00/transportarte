@@ -263,6 +263,7 @@
     padding: 12px 12px;
     border-radius: 13px;
     background: var(--surface-2);
+    cursor: pointer;
   }
   .arrival.convenient { background: var(--success-bg); }
   .journey-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; gap: 8px; }
@@ -481,7 +482,7 @@
     return candidates.map(function(c) {
       var mins = Math.round((c.originTime - now) / 60000);
       var hasDestWalk = c.destWalkMeters >= 30;
-      return '<div class="arrival convenient">' +
+      return '<div class="arrival convenient" data-shape1="' + escapeHtml(c.shapeId || '') + '">' +
         '<div class="journey-head"><span class="step-route">' + escapeHtml(c.route + ' · ' + c.headsign) + '</span><span class="journey-when">' + (mins <= 0 ? 'Ahora' : mins + ' min') + '</span></div>' +
         originWalkStep(c) +
         journeyStep('Subís', 'board', '', { label: c.originStop.address || c.originStop.name, stop: c.originStop }, 'Sale a las ' + fmtClockTime(c.originTime)) +
@@ -501,7 +502,7 @@
       if (c.walkMeters > 0 && c.boardStop) {
         transferWalkStep = journeyStep('Caminás', 'walk', '', { label: c.boardStop.address || c.boardStop.name, stop: c.boardStop }, '~' + c.walkMeters + ' m (unos ' + walkMins(c.walkMeters) + ' min)');
       }
-      return '<div class="arrival convenient">' +
+      return '<div class="arrival convenient" data-shape1="' + escapeHtml(c.leg1ShapeId || '') + '" data-shape2="' + escapeHtml(c.leg2ShapeId || '') + '">' +
         '<div class="journey-head"><span class="step-route">' + escapeHtml(c.leg1Route) + ' · con transbordo</span><span class="journey-when">' + (mins <= 0 ? 'Ahora' : mins + ' min') + '</span></div>' +
         originWalkStep(c) +
         journeyStep('Subís', 'board', c.leg1Headsign, { label: c.originStop.address || c.originStop.name, stop: c.originStop }, 'Sale a las ' + fmtClockTime(c.originTime)) +
@@ -535,13 +536,16 @@
     var el = document.getElementById('resultsArea');
     var mapsLink = '<div class="btn-row"><a class="btn btn-outline btn-full" style="text-align:center;text-decoration:none;" href="' + mapsDirUrl() + '" target="_blank" rel="noopener">Ver ruta completa en Google Maps</a></div>';
     if (data.direct && data.direct.length) {
-      el.innerHTML = '<div class="section-title">Mejores opciones</div><div class="transit-result">' + candidatesHtml(data.direct) + '</div>' + mapsLink;
+      el.innerHTML = '<div class="section-title">Mejores opciones · tocá una para ver el recorrido</div><div class="transit-result">' + candidatesHtml(data.direct) + '</div>' + mapsLink;
+      drawCandidateRoute(data.direct[0].shapeId, null);
       return;
     }
     if (data.transfer && data.transfer.length) {
-      el.innerHTML = '<div class="section-title">Combinaciones con transbordo</div><div class="transit-result">' + twoLegCandidatesHtml(data.transfer) + '</div>' + mapsLink;
+      el.innerHTML = '<div class="section-title">Combinaciones con transbordo · tocá una para ver el recorrido</div><div class="transit-result">' + twoLegCandidatesHtml(data.transfer) + '</div>' + mapsLink;
+      drawCandidateRoute(data.transfer[0].leg1ShapeId, data.transfer[0].leg2ShapeId);
       return;
     }
+    clearRouteLines();
     var fb = data.fallback || {};
     var html = '<div class="section-title">Cerca de donde salís</div>' +
       '<div class="card">' + (fb.originStop ? stopLocationHtml(fb.originStop) + arrivalsHtml(fb.originArrivals || []) : '<p style="font-size:13px;color:var(--muted);">No se encontraron paradas cercanas.</p>') + '</div>' +
@@ -609,6 +613,70 @@
   var geoWatchId = null;
   var armedTarget = null; // 'origin' | 'dest' | null
   var popoverTarget = null;
+  var routeLineLayers = [];
+
+  // Decodifica un polyline de Google (el formato que usa OneBusAway para el
+  // recorrido real de cada colectivo) a una lista de [lat, lon].
+  function decodePolyline(str) {
+    var index = 0, lat = 0, lon = 0, coords = [];
+    while (index < str.length) {
+      var b, shift = 0, result = 0;
+      do { b = str.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+      lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+      shift = 0; result = 0;
+      do { b = str.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+      lon += (result & 1) ? ~(result >> 1) : (result >> 1);
+      coords.push([lat / 1e5, lon / 1e5]);
+    }
+    return coords;
+  }
+
+  function fetchShapePoints(shapeId) {
+    var url = API_BASE + 'shape/' + encodeURIComponent(shapeId) + '.json?platform=web&v=&version=1.0';
+    return fetch(url).then(function(res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    }).then(function(body) {
+      if (body.code !== 200) throw new Error(body.text || ('código ' + body.code));
+      var points = body.data && body.data.entry && body.data.entry.points;
+      if (!points) throw new Error('sin recorrido disponible');
+      return decodePolyline(points);
+    });
+  }
+
+  function clearRouteLines() {
+    routeLineLayers.forEach(function(l) { leafletMap.removeLayer(l); });
+    routeLineLayers = [];
+  }
+
+  // Dibuja el/los recorrido(s) real(es) de una opción de viaje. shapeId2 sólo
+  // se usa en combinaciones con transbordo (una línea por tramo).
+  function drawCandidateRoute(shapeId1, shapeId2) {
+    clearRouteLines();
+    var ids = [shapeId1, shapeId2].filter(Boolean);
+    if (!ids.length) return;
+    Promise.all(ids.map(function(id) {
+      return fetchShapePoints(id).catch(function() { return null; });
+    })).then(function(results) {
+      results.forEach(function(coords) {
+        if (!coords) return;
+        routeLineLayers.push(L.polyline(coords, { color: '#2f7dd6', weight: 5, opacity: 0.85 }).addTo(leafletMap));
+      });
+      if (!routeLineLayers.length) { toast('No pudimos cargar el recorrido de esta línea.'); return; }
+      var group = L.featureGroup(routeLineLayers);
+      leafletMap.fitBounds(group.getBounds(), { paddingTopLeft: [30, 170], paddingBottomRight: [30, 260] });
+    });
+  }
+
+  document.getElementById('resultsArea').addEventListener('click', function(e) {
+    if (e.target.closest('a')) return;
+    var card = e.target.closest('.arrival[data-shape1]');
+    if (!card) return;
+    var s1 = card.getAttribute('data-shape1');
+    var s2 = card.getAttribute('data-shape2');
+    if (!s1 && !s2) return;
+    drawCandidateRoute(s1, s2);
+  });
 
   function startLiveLocation() {
     if (!navigator.geolocation) return;
@@ -826,6 +894,7 @@
         renderResults(data);
       })
       .catch(function(err) {
+        clearRouteLines();
         el.innerHTML = '<p class="transit-loading">No pudimos calcular la ruta (' + escapeHtml(err.message) + ').</p>';
       })
       .then(function() {
