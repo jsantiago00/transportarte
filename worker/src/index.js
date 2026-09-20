@@ -204,24 +204,40 @@ function findDirectCandidates(originResults, destStops, limit) {
     results.forEach((r) => {
       const { stopTimes, codeById } = r.details;
       if (!stopTimes.length) return;
-      let originEntry = null;
+      // Algunos colectivos hacen un circuito y pasan por la misma zona más de
+      // una vez (por ejemplo, se alejan y vuelven antes de encarar hacia el
+      // destino). Si tomábamos siempre la PRIMERA vez que el trip pisa la
+      // parada de origen, podíamos terminar recomendando subirse justo antes
+      // de ese desvío en lugar de esperar el paso directo. Por eso probamos
+      // cada vez que el trip pasa por la parada de origen y nos quedamos con
+      // la que llega más rápido al destino.
+      let firstOriginEntry = null;
+      let best = null;
       for (let i = 0; i < stopTimes.length; i++) {
-        if (codeById[stopTimes[i].stopId] === r.item.stop.name) { originEntry = stopTimes[i]; break; }
-      }
-      if (!originEntry) return;
-      let destEntry = null, destStop = null;
-      for (let j = 0; j < stopTimes.length; j++) {
-        const code = codeById[stopTimes[j].stopId];
-        if (code && destByCode[code] && stopTimes[j].arrivalTime > originEntry.arrivalTime) {
-          destEntry = stopTimes[j];
-          destStop = destByCode[code];
+        if (codeById[stopTimes[i].stopId] !== r.item.stop.name) continue;
+        const originEntry = stopTimes[i];
+        if (!firstOriginEntry) firstOriginEntry = originEntry;
+        for (let j = i + 1; j < stopTimes.length; j++) {
+          const code = codeById[stopTimes[j].stopId];
+          if (!code || !destByCode[code]) continue;
+          const destEntry = stopTimes[j];
+          const rideSeconds = destEntry.arrivalTime - originEntry.arrivalTime;
+          if (!best || rideSeconds < best.rideSeconds) {
+            best = { originEntry, destEntry, destStop: destByCode[code], rideSeconds };
+          }
           break;
         }
       }
-      if (!destEntry) return;
+      if (!best) return;
       const a = r.item.arrival;
-      const originPredicted = a.predictedArrivalTime || a.scheduledArrivalTime;
-      const destPredicted = originPredicted + (destEntry.arrivalTime - originEntry.arrivalTime) * 1000;
+      // El horario "en vivo" que reporta Mendotran es para la primera vez que
+      // el colectivo pasa por esta parada. Si conviene abordarlo en otro paso
+      // (el del circuito que va directo), trasladamos ese mismo desfasaje
+      // en-vivo-vs-programado al horario programado de ese otro paso.
+      const liveOffsetMs = (best.originEntry.arrivalTime - firstOriginEntry.arrivalTime) * 1000;
+      const originPredicted = (a.predictedArrivalTime || a.scheduledArrivalTime) + liveOffsetMs;
+      const destPredicted = originPredicted + best.rideSeconds * 1000;
+      const destStop = best.destStop;
       const originWalkMeters = r.item.stop.walkMeters || 0;
       const destWalkMeters = destStop.walkMeters || 0;
       const destWalkMs = (destWalkMeters / WALK_SPEED_M_PER_MIN) * 60000;
@@ -263,28 +279,34 @@ function buildReachableMap(originResults, limit) {
     results.forEach((r) => {
       const { stopTimes, codeById, refByCode } = r.details;
       if (!stopTimes.length) return;
-      let originIdx = -1;
-      for (let i = 0; i < stopTimes.length; i++) {
-        if (codeById[stopTimes[i].stopId] === r.item.stop.name) { originIdx = i; break; }
-      }
-      if (originIdx === -1) return;
       const a = r.item.arrival;
-      const originPredicted = a.predictedArrivalTime || a.scheduledArrivalTime;
-      const originOffset = stopTimes[originIdx].arrivalTime;
-      for (let j = originIdx + 1; j < stopTimes.length; j++) {
-        const code = codeById[stopTimes[j].stopId];
-        if (!code) continue;
-        const arrivalTime = originPredicted + (stopTimes[j].arrivalTime - originOffset) * 1000;
-        if (!reachable[code] || arrivalTime < reachable[code].arrivalTime) {
-          reachable[code] = {
-            stopRef: refByCode[code],
-            arrivalTime,
-            route: a.routeShortName || a.routeId || "",
-            headsign: a.tripHeadsign || "",
-            shapeId: a.shapeId || null,
-            originStop: r.item.stop,
-            originTime: originPredicted,
-          };
+      const reportedPredicted = a.predictedArrivalTime || a.scheduledArrivalTime;
+      // Igual que en findDirectCandidates: si el trip pasa por la parada de
+      // origen más de una vez (circuito), probamos abordarlo en cada paso y
+      // nos quedamos, para cada parada alcanzable, con la que llega antes -
+      // así no arrastramos un rodeo por haber tomado el primer paso nomás.
+      let firstOriginEntry = null;
+      for (let i = 0; i < stopTimes.length; i++) {
+        if (codeById[stopTimes[i].stopId] !== r.item.stop.name) continue;
+        const originEntry = stopTimes[i];
+        if (!firstOriginEntry) firstOriginEntry = originEntry;
+        const liveOffsetMs = (originEntry.arrivalTime - firstOriginEntry.arrivalTime) * 1000;
+        const originPredicted = reportedPredicted + liveOffsetMs;
+        for (let j = i + 1; j < stopTimes.length; j++) {
+          const code = codeById[stopTimes[j].stopId];
+          if (!code) continue;
+          const arrivalTime = originPredicted + (stopTimes[j].arrivalTime - originEntry.arrivalTime) * 1000;
+          if (!reachable[code] || arrivalTime < reachable[code].arrivalTime) {
+            reachable[code] = {
+              stopRef: refByCode[code],
+              arrivalTime,
+              route: a.routeShortName || a.routeId || "",
+              headsign: a.tripHeadsign || "",
+              shapeId: a.shapeId || null,
+              originStop: r.item.stop,
+              originTime: originPredicted,
+            };
+          }
         }
       }
     });
@@ -306,27 +328,36 @@ function buildCoverageMap(destResults, destStops, limit) {
     results.forEach((r) => {
       const { stopTimes, codeById, refByCode } = r.details;
       if (!stopTimes.length) return;
-      let destIdx = -1, destCode = null;
-      for (let i = 0; i < stopTimes.length; i++) {
-        const c = codeById[stopTimes[i].stopId];
-        if (c && destCodes[c]) { destIdx = i; destCode = c; break; }
-      }
-      if (destIdx === -1) return;
       const a = r.item.arrival;
-      const destPredicted = a.predictedArrivalTime || a.scheduledArrivalTime;
-      const destOffset = stopTimes[destIdx].arrivalTime;
-      for (let j = 0; j < destIdx; j++) {
-        const code = codeById[stopTimes[j].stopId];
-        if (!code || coverage[code]) continue;
-        coverage[code] = {
-          stopRef: refByCode[code],
-          boardTime: destPredicted - (destOffset - stopTimes[j].arrivalTime) * 1000,
-          route: a.routeShortName || a.routeId || "",
-          headsign: a.tripHeadsign || "",
-          shapeId: a.shapeId || null,
-          destStop: destCodes[destCode],
-          destTime: destPredicted,
-        };
+      const reportedPredicted = a.predictedArrivalTime || a.scheduledArrivalTime;
+      // Mismo criterio que en las otras dos búsquedas: si el trip pasa dos
+      // veces cerca del destino (circuito), probamos cada paso y nos
+      // quedamos, por cada posible parada de subida, con la que implica el
+      // tramo más directo (el boardTime más tardío = el viaje más corto).
+      let firstDestEntry = null;
+      for (let i = 0; i < stopTimes.length; i++) {
+        const destCode = codeById[stopTimes[i].stopId];
+        if (!destCode || !destCodes[destCode]) continue;
+        const destEntry = stopTimes[i];
+        if (!firstDestEntry) firstDestEntry = destEntry;
+        const liveOffsetMs = (destEntry.arrivalTime - firstDestEntry.arrivalTime) * 1000;
+        const destPredicted = reportedPredicted + liveOffsetMs;
+        for (let j = 0; j < i; j++) {
+          const code = codeById[stopTimes[j].stopId];
+          if (!code) continue;
+          const boardTime = destPredicted - (destEntry.arrivalTime - stopTimes[j].arrivalTime) * 1000;
+          if (!coverage[code] || boardTime > coverage[code].boardTime) {
+            coverage[code] = {
+              stopRef: refByCode[code],
+              boardTime,
+              route: a.routeShortName || a.routeId || "",
+              headsign: a.tripHeadsign || "",
+              shapeId: a.shapeId || null,
+              destStop: destCodes[destCode],
+              destTime: destPredicted,
+            };
+          }
+        }
       }
     });
     return coverage;
