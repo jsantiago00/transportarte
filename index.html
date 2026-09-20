@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>TransportArte</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.85em%22 font-size=%2290%22>🚌</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -144,6 +145,21 @@
     color: var(--text);
   }
   .field input[type=text].armed { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(47,125,214,0.22); }
+  .locate-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--primary-dark);
+    padding: 6px 11px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 700;
+    cursor: pointer;
+    margin: -4px 0 12px;
+  }
+  .locate-btn:disabled { opacity: 0.6; cursor: default; }
   .btn {
     border: none;
     padding: 11px 14px;
@@ -368,7 +384,7 @@
       <input type="text" id="originSearch" placeholder="Buscá una dirección, o tocá el mapa" autocomplete="off">
       <div class="suggest-list" id="originSuggest" hidden></div>
     </div>
-    <button class="btn btn-outline btn-full" id="useMyLocation" type="button" style="margin-bottom:10px;">📍 Mi ubicación actual</button>
+    <button class="locate-btn" id="useMyLocation" type="button">📍 Mi ubicación actual</button>
 
     <div class="field">
       <label>Destino</label>
@@ -587,7 +603,7 @@
       lastCandidateType = 'direct';
       showResultsSummary('Mejores opciones (' + data.direct.length + ') · tocá una para ver el recorrido');
       el.innerHTML = '<div class="transit-result">' + candidatesHtml(data.direct) + '</div>' + mapsLink;
-      drawDirectRoute(data.direct[0]);
+      highlightCandidate(0);
       return;
     }
     if (data.transfer && data.transfer.length) {
@@ -595,7 +611,7 @@
       lastCandidateType = 'transfer';
       showResultsSummary('Combinaciones con transbordo (' + data.transfer.length + ') · tocá una para ver el recorrido');
       el.innerHTML = '<div class="transit-result">' + twoLegCandidatesHtml(data.transfer) + '</div>' + mapsLink;
-      drawTransferRoute(data.transfer[0]);
+      highlightCandidate(0);
       return;
     }
     lastCandidates = [];
@@ -677,14 +693,50 @@
       return res.json();
     }).then(function(body) {
       if (body.code !== 200) throw new Error(body.text || ('código ' + body.code));
-      return (body.data && body.data.entry && body.data.entry.arrivalsAndDepartures) || [];
+      // El shapeId (para dibujar el recorrido) viene en references.trips, no
+      // en cada llegada - lo copiamos a cada una para no tener que cruzar
+      // ambas listas cada vez que se toca un colectivo.
+      var shapeIdByTrip = {};
+      ((body.data.references && body.data.references.trips) || []).forEach(function(t) {
+        if (t.shapeId) shapeIdByTrip[t.id] = t.shapeId;
+      });
+      var arrivals = (body.data.entry && body.data.entry.arrivalsAndDepartures) || [];
+      arrivals.forEach(function(a) { a.shapeId = shapeIdByTrip[a.tripId] || null; });
+      return arrivals;
+    });
+  }
+
+  // Igual que arrivalsHtml, pero cada llegada queda marcada con su shapeId
+  // para poder tocarla y dibujar el recorrido de ese colectivo.
+  function stopArrivalsHtml(arrivals) {
+    if (!arrivals.length) return '<p style="font-size:12.5px;color:var(--muted);margin:4px 0 0;">No hay llegadas previstas por ahora.</p>';
+    var now = Date.now();
+    return arrivals.slice(0, 5).map(function(a) {
+      var t = a.predictedArrivalTime || a.scheduledArrivalTime;
+      var mins = Math.round((t - now) / 60000);
+      var route = a.routeShortName || a.routeId || '';
+      return '<div class="arrival" data-shape="' + escapeHtml(a.shapeId || '') + '"><div class="journey-head"><span class="step-route">' + escapeHtml(route + ' · ' + (a.tripHeadsign || '')) + '</span><span class="journey-when">' + (mins <= 0 ? 'Ahora' : mins + ' min') + '</span></div></div>';
+    }).join('');
+  }
+
+  function wireStopPopupClicks(marker) {
+    var popup = marker.getPopup();
+    var el = popup && popup.getElement();
+    if (!el) return;
+    el.querySelectorAll('.arrival[data-shape]').forEach(function(card) {
+      card.addEventListener('click', function() {
+        var shapeId = card.getAttribute('data-shape');
+        if (!shapeId) { toast('Esta línea no tiene el recorrido disponible.'); return; }
+        drawSingleBusShape(shapeId);
+      });
     });
   }
 
   function openStopPopup(stop, marker) {
     marker.setPopupContent('<div class="stop-popup"><p class="stop-popup-title">' + escapeHtml(stop.address || stop.name) + '</p><p style="color:var(--muted);">Buscando llegadas...</p></div>');
     fetchStopArrivals(stop.id).then(function(arrivals) {
-      marker.setPopupContent('<div class="stop-popup"><p class="stop-popup-title">' + escapeHtml(stop.address || stop.name) + '</p>' + arrivalsHtml(arrivals) + '</div>');
+      marker.setPopupContent('<div class="stop-popup"><p class="stop-popup-title">' + escapeHtml(stop.address || stop.name) + '</p>' + stopArrivalsHtml(arrivals) + '</div>');
+      wireStopPopupClicks(marker);
     }).catch(function() {
       marker.setPopupContent('<div class="stop-popup"><p class="stop-popup-title">' + escapeHtml(stop.address || stop.name) + '</p><p style="color:var(--muted);">No pudimos cargar las llegadas.</p></div>');
     });
@@ -828,47 +880,74 @@
     leafletMap.fitBounds(L.latLngBounds(boundsPoints), { paddingTopLeft: [30, 60], paddingBottomRight: [30, 280] });
   }
 
-  function drawDirectRoute(c) {
+  // Dibuja el recorrido de un solo colectivo (usado al tocar uno en el popup
+  // de una parada), sin comparar con otras opciones.
+  function drawSingleBusShape(shapeId) {
     clearRouteLines();
     var bounds = [];
-    drawStopMarker(c.originStop, '#2f7dd6', 'S', bounds);
-    drawStopMarker(c.destStop, '#123f7a', 'B', bounds);
-    var tasks = [
-      drawBusShape(c.shapeId, bounds),
-      drawWalkLine(state.origin, c.originStop, bounds),
-      drawWalkLine(c.destStop, state.dest, bounds)
-    ];
-    Promise.all(tasks).then(function() { finishRouteDraw(bounds); });
+    drawBusShape(shapeId, bounds).then(function() { finishRouteDraw(bounds); });
   }
 
-  function drawTransferRoute(c) {
+  // Línea de fondo (sin flechas) para las opciones que NO están resaltadas,
+  // más tenue que la elegida para poder comparar todas de un vistazo.
+  function drawDimShape(shapeId, boundsPoints) {
+    if (!shapeId) return Promise.resolve();
+    return fetchShapePoints(shapeId).then(function(coords) {
+      if (!coords || !coords.length) return;
+      addRouteLayer(L.polyline(coords, { color: '#2f7dd6', weight: 4, opacity: 0.25 }));
+      boundsPoints.push.apply(boundsPoints, coords);
+    }).catch(function() { /* sin recorrido disponible para este tramo */ });
+  }
+
+  function shapeIdsFor(c) {
+    return lastCandidateType === 'direct' ? [c.shapeId] : [c.leg1ShapeId, c.leg2ShapeId];
+  }
+
+  function drawStopsAndWalks(c, boundsPoints) {
+    drawStopMarker(c.originStop, '#2f7dd6', 'S', boundsPoints);
+    var tasks = [drawWalkLine(state.origin, c.originStop, boundsPoints)];
+    if (lastCandidateType === 'transfer') {
+      if (c.boardStop) {
+        // Bajás de la primera línea y caminás hasta otra parada para la segunda.
+        drawStopMarker(c.transferStop, '#123f7a', 'B', boundsPoints);
+        drawStopMarker(c.boardStop, '#2f7dd6', 'S', boundsPoints);
+        tasks.push(drawWalkLine(c.transferStop, c.boardStop, boundsPoints));
+      } else {
+        // El transbordo es en la misma parada: un solo pin para bajar y subir.
+        drawStopMarker(c.transferStop, '#6b4fa0', '⇄', boundsPoints);
+      }
+    }
+    drawStopMarker(c.destStop, '#123f7a', 'B', boundsPoints);
+    tasks.push(drawWalkLine(c.destStop, state.dest, boundsPoints));
+    return tasks;
+  }
+
+  // Dibuja TODAS las opciones encontradas a la vez (para poder comparar),
+  // con la elegida en color fuerte y flechas de sentido, y el resto atenuadas
+  // de fondo. Las atenuadas se pintan primero para que la resaltada quede
+  // siempre por encima.
+  function highlightCandidate(idx) {
+    if (!lastCandidates.length || !lastCandidates[idx]) return;
     clearRouteLines();
     var bounds = [];
-    var tasks = [drawBusShape(c.leg1ShapeId, bounds), drawBusShape(c.leg2ShapeId, bounds)];
-    drawStopMarker(c.originStop, '#2f7dd6', 'S', bounds);
-    if (c.boardStop) {
-      // Bajás de la primera línea y caminás hasta otra parada para la segunda.
-      drawStopMarker(c.transferStop, '#123f7a', 'B', bounds);
-      drawStopMarker(c.boardStop, '#2f7dd6', 'S', bounds);
-      tasks.push(drawWalkLine(c.transferStop, c.boardStop, bounds));
-    } else {
-      // El transbordo es en la misma parada: un solo pin para bajar y subir.
-      drawStopMarker(c.transferStop, '#6b4fa0', '⇄', bounds);
-    }
-    drawStopMarker(c.destStop, '#123f7a', 'B', bounds);
-    tasks.push(drawWalkLine(state.origin, c.originStop, bounds));
-    tasks.push(drawWalkLine(c.destStop, state.dest, bounds));
-    Promise.all(tasks).then(function() { finishRouteDraw(bounds); });
+    var dimTasks = [];
+    lastCandidates.forEach(function(c, i) {
+      if (i === idx) return;
+      shapeIdsFor(c).filter(Boolean).forEach(function(shapeId) { dimTasks.push(drawDimShape(shapeId, bounds)); });
+    });
+    Promise.all(dimTasks).then(function() {
+      var top = lastCandidates[idx];
+      var topTasks = shapeIdsFor(top).filter(Boolean).map(function(shapeId) { return drawBusShape(shapeId, bounds); });
+      topTasks = topTasks.concat(drawStopsAndWalks(top, bounds));
+      return Promise.all(topTasks);
+    }).then(function() { finishRouteDraw(bounds); });
   }
 
   document.getElementById('resultsArea').addEventListener('click', function(e) {
     if (e.target.closest('a')) return;
     var card = e.target.closest('.arrival[data-idx]');
     if (!card) return;
-    var c = lastCandidates[parseInt(card.getAttribute('data-idx'), 10)];
-    if (!c) return;
-    if (lastCandidateType === 'direct') drawDirectRoute(c);
-    else if (lastCandidateType === 'transfer') drawTransferRoute(c);
+    highlightCandidate(parseInt(card.getAttribute('data-idx'), 10));
   });
 
   function startLiveLocation() {
