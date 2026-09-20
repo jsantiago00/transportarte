@@ -49,50 +49,101 @@
     }
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; }
+  html, body { margin: 0; padding: 0; height: 100%; }
   body {
     background: var(--bg);
     color: var(--text);
     font-family: 'Nunito', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    padding-bottom: 40px;
+    overflow: hidden;
+    overscroll-behavior-y: contain;
+    -webkit-text-size-adjust: 100%;
   }
   img { max-width: 100%; }
   [hidden] { display: none !important; }
   button { font-family: inherit; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
   input, select, textarea { font-family: inherit; font-size: 16px; }
-  body { overscroll-behavior-y: contain; -webkit-text-size-adjust: 100%; }
 
-  header.app-header {
-    background: var(--surface);
-    padding: calc(16px + env(safe-area-inset-top, 0px)) 16px 14px;
-    border-bottom: 1px solid var(--border);
+  #mapContainer { position: fixed; inset: 0; z-index: 0; background: var(--surface-2); }
+
+  .map-ui-top {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 30;
+    padding: calc(12px + env(safe-area-inset-top, 0px)) 12px 0;
+    pointer-events: none;
   }
-  header.app-header h1 {
-    margin: 0;
+  .brand-tiny {
+    display: block;
     font-family: 'Fraunces', Georgia, serif;
-    font-size: 24px;
     font-weight: 600;
-    color: var(--primary-dark);
+    font-size: 13px;
+    color: #fff;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.55);
+    margin: 0 0 8px 3px;
   }
-  header.app-header .sub { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
-
-  main { padding: 16px; max-width: 560px; margin: 0 auto; }
-
-  .card {
+  .point-chip {
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 18px;
-    padding: 16px;
-    margin-bottom: 14px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.04);
-  }
-  .card h2 {
-    font-family: 'Fraunces', Georgia, serif;
+    border-radius: 12px;
+    padding: 11px 12px;
+    font-size: 13.5px;
     font-weight: 600;
-    font-size: 16px;
-    margin: 0 0 10px;
+    color: var(--muted);
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+    text-align: left;
   }
-  .field { margin-bottom: 10px; }
+  .point-chip + .point-chip { margin-top: 7px; }
+  .point-chip.filled { color: var(--text); font-weight: 700; }
+  .point-chip.armed { outline: 2px solid var(--primary); outline-offset: -2px; }
+  .chip-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .chip-dot-origin { background: var(--success); }
+  .chip-dot-dest { background: var(--danger); }
+  .chip-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .map-instruction {
+    pointer-events: none;
+    margin: 8px 3px 0;
+    font-size: 12px;
+    font-weight: 700;
+    color: #fff;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.65);
+  }
+
+  .picker-popover {
+    pointer-events: auto;
+    margin-top: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 14px;
+    box-shadow: 0 8px 26px rgba(0,0,0,0.22);
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+  .popover-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  .popover-head span { font-family: 'Fraunces', Georgia, serif; font-weight: 600; font-size: 15px; }
+  .popover-head button {
+    border: none;
+    background: var(--surface-2);
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    font-size: 14px;
+    cursor: pointer;
+    color: var(--muted);
+  }
+
+  .field { position: relative; margin-bottom: 10px; }
   .field label { display: block; font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 4px; }
   .field input[type=text] {
     width: 100%;
@@ -102,7 +153,6 @@
     background: var(--surface-2);
     color: var(--text);
   }
-  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
   .btn {
     border: none;
     padding: 11px 14px;
@@ -110,15 +160,12 @@
     font-size: 13.5px;
     font-weight: 700;
     cursor: pointer;
-    flex: 1;
-    min-width: 120px;
   }
   .btn-primary { background: var(--primary); color: #fff; box-shadow: 0 4px 12px -3px var(--primary-dark); }
   .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
   .btn-full { width: 100%; padding: 13px; font-size: 15px; border-radius: 13px; }
-  .status-line { font-size: 12px; color: var(--muted); margin-top: 6px; min-height: 16px; }
-  .status-line.ok { color: var(--success); font-weight: 700; }
-  .status-line.err { color: var(--danger); font-weight: 700; }
+  .btn:disabled { opacity: 0.6; cursor: default; }
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 
   .suggest-list {
     position: absolute;
@@ -128,8 +175,8 @@
     border: 1px solid var(--border);
     border-radius: 12px;
     box-shadow: 0 8px 20px rgba(0,0,0,0.12);
-    z-index: 20;
-    max-height: 240px;
+    z-index: 5;
+    max-height: 200px;
     overflow-y: auto;
   }
   .suggest-list button {
@@ -159,6 +206,20 @@
     text-align: left;
   }
 
+  .bottom-card {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 35;
+    max-width: 560px;
+    margin: 0 auto;
+    background: var(--surface);
+    border-radius: 20px 20px 0 0;
+    box-shadow: 0 -6px 24px rgba(0,0,0,0.2);
+    padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+    max-height: 66vh;
+    display: flex;
+    flex-direction: column;
+  }
   .search-btn {
     display: block;
     width: 100%;
@@ -171,9 +232,12 @@
     font-weight: 800;
     cursor: pointer;
     box-shadow: 0 6px 16px -3px var(--primary-dark);
-    margin-bottom: 16px;
+    flex-shrink: 0;
   }
   .search-btn:disabled { opacity: 0.6; cursor: default; }
+
+  #resultsArea { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  #resultsArea:not(:empty) { margin-bottom: 10px; }
 
   .section-title {
     font-size: 12.5px;
@@ -184,7 +248,15 @@
     margin: 4px 0 8px;
   }
   .transit-loading { color: var(--muted); font-size: 13px; text-align: center; padding: 16px; }
-  .empty-hint { color: var(--muted); font-size: 13px; text-align: center; padding: 30px 16px; }
+  .empty-hint { color: var(--muted); font-size: 13px; text-align: center; padding: 14px 4px; }
+
+  .card {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 14px;
+    margin-bottom: 10px;
+  }
 
   .transit-result { display: flex; flex-direction: column; gap: 8px; }
   .arrival {
@@ -233,89 +305,10 @@
     font-size: 13px;
     z-index: 80;
     box-shadow: 0 4px 14px rgba(0,0,0,0.2);
-  }
-  footer.about {
-    max-width: 560px;
-    margin: 0 auto;
-    padding: 0 16px 20px;
-    font-size: 11.5px;
-    color: var(--muted);
+    max-width: 85vw;
     text-align: center;
   }
 
-  .map-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.45);
-    z-index: 60;
-    display: flex;
-    align-items: flex-end;
-  }
-  .map-sheet {
-    background: var(--surface);
-    width: 100%;
-    max-width: 560px;
-    margin: 0 auto;
-    border-radius: 20px 20px 0 0;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    max-height: 92vh;
-  }
-  .map-sheet-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 14px 16px;
-    border-bottom: 1px solid var(--border);
-  }
-  .map-sheet-header span { font-family: 'Fraunces', Georgia, serif; font-weight: 600; font-size: 16px; }
-  .map-sheet-header button {
-    border: none;
-    background: var(--surface-2);
-    width: 30px; height: 30px;
-    border-radius: 50%;
-    font-size: 15px;
-    cursor: pointer;
-    color: var(--muted);
-  }
-  .map-hint {
-    font-size: 11.5px;
-    color: var(--muted);
-    padding: 8px 16px 0;
-  }
-  #mapContainer { height: 52vh; width: 100%; }
-  .map-sheet-footer {
-    padding: 12px 16px calc(14px + env(safe-area-inset-bottom, 0px));
-    border-top: 1px solid var(--border);
-  }
-  .pin-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    color: var(--text);
-    padding: 8px 12px;
-    border-radius: 10px;
-    font-size: 12.5px;
-    font-weight: 700;
-    cursor: pointer;
-    margin-top: 8px;
-  }
-  .both-picker-btn {
-    display: block;
-    width: 100%;
-    background: var(--surface);
-    border: 1.5px dashed var(--primary);
-    color: var(--primary-dark);
-    padding: 13px;
-    border-radius: 14px;
-    font-size: 14px;
-    font-weight: 800;
-    cursor: pointer;
-    margin-bottom: 16px;
-  }
   .my-location-dot {
     width: 16px;
     height: 16px;
@@ -333,71 +326,41 @@
 </head>
 <body>
 
-<header class="app-header">
-  <h1>TransportArte</h1>
-  <p class="sub">¿Cómo llego? Colectivos de Mendoza (Mendotran)</p>
-</header>
+<div id="mapContainer"></div>
 
-<main>
-  <button class="both-picker-btn" id="pickBothOnMap" type="button">🗺️ Elegir origen y destino en el mapa</button>
-  <div class="card">
-    <h2>Desde dónde salís</h2>
+<div class="map-ui-top">
+  <span class="brand-tiny">TransportArte</span>
+  <button class="point-chip" id="originChip" type="button">
+    <span class="chip-dot chip-dot-origin"></span>
+    <span class="chip-text" id="originChipText">Elegí tu punto de partida</span>
+  </button>
+  <button class="point-chip" id="destChip" type="button">
+    <span class="chip-dot chip-dot-dest"></span>
+    <span class="chip-text" id="destChipText">Elegí tu destino</span>
+  </button>
+  <p class="map-instruction" id="mapInstruction">Tocá un botón de arriba, o directamente el mapa, para elegir tus puntos.</p>
+
+  <div class="picker-popover" id="pickerPopover" hidden>
+    <div class="popover-head">
+      <span id="popoverTitle">Origen</span>
+      <button id="popoverClose" type="button">✕</button>
+    </div>
     <button class="btn btn-primary btn-full" id="useMyLocation" type="button">Usar mi ubicación</button>
-    <div class="field" style="margin-top:10px;position:relative;">
-      <label>O buscá otra dirección de partida</label>
-      <input type="text" id="originSearch" placeholder="Ej: San Martín 1234, o Shopping Palmares" autocomplete="off">
-      <div class="suggest-list" id="originSuggest" hidden></div>
+    <div class="field" style="margin-top:10px;">
+      <label id="popoverSearchLabel">Buscá una dirección</label>
+      <input type="text" id="pointSearch" placeholder="Ej: San Martín 1234, o Shopping Palmares" autocomplete="off">
+      <div class="suggest-list" id="pointSuggest" hidden></div>
     </div>
-    <div class="status-line" id="originStatus">Sin definir todavía.</div>
-    <button class="pin-btn" id="pinOrigin" type="button">📍 Marcar en el mapa</button>
-    <button class="link-toggle" id="originToggleCoords" type="button">¿Preferís pegar coordenadas o un link de Maps?</button>
-    <div class="field" id="originCoordsField" hidden>
-      <input type="text" id="originPaste" placeholder="-32,90 -68,84 o link de Maps">
+    <button class="link-toggle" id="pointToggleCoords" type="button">¿Preferís pegar coordenadas o un link de Maps?</button>
+    <div class="field" id="pointCoordsField" hidden>
+      <input type="text" id="pointPaste" placeholder="-32,90 -68,84 o link de Maps">
     </div>
   </div>
+</div>
 
-  <div class="card">
-    <h2>A dónde vas</h2>
-    <div class="field" style="position:relative;">
-      <label>Buscá la dirección de destino</label>
-      <input type="text" id="destSearch" placeholder="Ej: San Martín 1234, o Shopping Palmares" autocomplete="off">
-      <div class="suggest-list" id="destSuggest" hidden></div>
-    </div>
-    <div class="status-line" id="destStatus">Sin definir todavía.</div>
-    <button class="pin-btn" id="pinDest" type="button">📍 Marcar en el mapa</button>
-    <button class="link-toggle" id="destToggleCoords" type="button">¿Preferís pegar coordenadas o un link de Maps?</button>
-    <div class="field" id="destCoordsField" hidden>
-      <input type="text" id="destPaste" placeholder="-32,90 -68,84 o link de Maps">
-    </div>
-  </div>
-
-  <button class="search-btn" id="searchBtn" type="button" disabled>Buscar viaje</button>
-
+<div class="bottom-card">
   <div id="resultsArea"></div>
-</main>
-
-<footer class="about">Datos en vivo de Mendotran (OneBusAway). Esta página no reemplaza a la app oficial.</footer>
-
-<div class="map-overlay" id="mapOverlay" hidden>
-  <div class="map-sheet">
-    <div class="map-sheet-header">
-      <span id="mapSheetTitle">Marcar ubicación</span>
-      <button id="mapClose" type="button">✕</button>
-    </div>
-    <p class="map-hint" id="mapHint">Tocá el mapa donde querés marcar el punto.</p>
-    <div id="mapContainer"></div>
-    <div class="map-sheet-footer">
-      <div id="mapSingleLabelWrap">
-        <div class="status-line" id="mapPickedLabel">Todavía no tocaste el mapa.</div>
-      </div>
-      <div id="mapBothLabelWrap" hidden>
-        <div class="status-line" id="mapBothOriginLabel">Origen: tocá el mapa para marcarlo.</div>
-        <div class="status-line" id="mapBothDestLabel">Destino: —</div>
-      </div>
-      <button class="btn btn-primary btn-full" id="mapConfirmBtn" type="button" disabled>Usar este punto</button>
-      <button class="link-toggle" id="mapRestartBoth" type="button" hidden>↺ Empezar de nuevo</button>
-    </div>
-  </div>
+  <button class="search-btn" id="searchBtn" type="button" disabled>Buscar viaje</button>
 </div>
 
 <div id="toastRoot"></div>
@@ -427,7 +390,7 @@
     el.className = 'toast';
     el.textContent = msg;
     document.getElementById('toastRoot').appendChild(el);
-    setTimeout(function() { el.remove(); }, 2200);
+    setTimeout(function() { el.remove(); }, 2600);
   }
 
   function parseMapsCoords(text) {
@@ -467,10 +430,25 @@
 
   function stopLocationHtml(stop) {
     var mapsLink = mapsSearchLink(stop);
+    var walkLine = (typeof stop.walkMeters === 'number') ? (' · ~' + stop.walkMeters + ' m caminando') : '';
     return '<p style="font-size:13.5px;font-weight:700;margin:0 0 2px;">' + escapeHtml(stop.address || stop.name) + '</p>' +
-      '<p style="font-size:11.5px;margin:0 0 6px;color:var(--muted);">Parada ' + escapeHtml(stop.name) +
+      '<p style="font-size:11.5px;margin:0 0 6px;color:var(--muted);">Parada ' + escapeHtml(stop.name) + walkLine +
       (mapsLink ? ' · <a href="' + mapsLink + '" target="_blank" rel="noopener" class="link-btn" style="font-size:11.5px;">Ver en el mapa</a>' : '') +
       '</p>';
+  }
+
+  function walkMins(meters) { return Math.max(1, Math.round(meters / 70)); }
+
+  function originWalkStep(c) {
+    if (!c.originWalkMeters || c.originWalkMeters < 50) return '';
+    return journeyStep('Caminás', 'walk', '', { label: c.originStop.address || c.originStop.name, stop: c.originStop },
+      '~' + c.originWalkMeters + ' m (unos ' + walkMins(c.originWalkMeters) + ' min) hasta la parada');
+  }
+
+  function destWalkStep(c) {
+    if (!c.destWalkMeters || c.destWalkMeters < 30) return '';
+    return journeyStep('Caminás', 'walk', '', null,
+      '~' + c.destWalkMeters + ' m (unos ' + walkMins(c.destWalkMeters) + ' min) · Llegás ~' + fmtClockTime(c.arrivalTime));
   }
 
   function journeyStep(tag, tagClass, routeLine, place, timeLine) {
@@ -502,10 +480,13 @@
     var now = Date.now();
     return candidates.map(function(c) {
       var mins = Math.round((c.originTime - now) / 60000);
+      var hasDestWalk = c.destWalkMeters >= 30;
       return '<div class="arrival convenient">' +
         '<div class="journey-head"><span class="step-route">' + escapeHtml(c.route + ' · ' + c.headsign) + '</span><span class="journey-when">' + (mins <= 0 ? 'Ahora' : mins + ' min') + '</span></div>' +
+        originWalkStep(c) +
         journeyStep('Subís', 'board', '', { label: c.originStop.address || c.originStop.name, stop: c.originStop }, 'Sale a las ' + fmtClockTime(c.originTime)) +
-        journeyStep('Bajás', 'alight', '', { label: c.destStop.address || c.destStop.name, stop: c.destStop }, 'Llegás ~' + fmtClockTime(c.destTime)) +
+        journeyStep('Bajás', 'alight', '', { label: c.destStop.address || c.destStop.name, stop: c.destStop }, (hasDestWalk ? 'Baja ~' : 'Llegás ~') + fmtClockTime(c.destTime)) +
+        destWalkStep(c) +
       '</div>';
     }).join('');
   }
@@ -515,18 +496,20 @@
     return candidates.map(function(c) {
       var mins = Math.round((c.originTime - now) / 60000);
       var transferLabel = c.transferStop ? (c.transferStop.address || c.transferStop.name) : 'la parada de trasbordo';
-      var walkStep = '';
+      var hasDestWalk = c.destWalkMeters >= 30;
+      var transferWalkStep = '';
       if (c.walkMeters > 0 && c.boardStop) {
-        var walkMins = Math.max(1, Math.round(c.walkMeters / 70));
-        walkStep = journeyStep('Caminás', 'walk', '', { label: c.boardStop.address || c.boardStop.name, stop: c.boardStop }, '~' + c.walkMeters + ' m (unos ' + walkMins + ' min)');
+        transferWalkStep = journeyStep('Caminás', 'walk', '', { label: c.boardStop.address || c.boardStop.name, stop: c.boardStop }, '~' + c.walkMeters + ' m (unos ' + walkMins(c.walkMeters) + ' min)');
       }
       return '<div class="arrival convenient">' +
         '<div class="journey-head"><span class="step-route">' + escapeHtml(c.leg1Route) + ' · con transbordo</span><span class="journey-when">' + (mins <= 0 ? 'Ahora' : mins + ' min') + '</span></div>' +
+        originWalkStep(c) +
         journeyStep('Subís', 'board', c.leg1Headsign, { label: c.originStop.address || c.originStop.name, stop: c.originStop }, 'Sale a las ' + fmtClockTime(c.originTime)) +
         journeyStep('Bajás', 'alight', '', { label: transferLabel, stop: c.transferStop }, 'Llegás ~' + fmtClockTime(c.transferArrival)) +
-        walkStep +
+        transferWalkStep +
         journeyStep('Subís', 'board', c.leg2Route + ' · ' + c.leg2Headsign, null, 'Sale ~' + fmtClockTime(c.transferBoard)) +
-        journeyStep('Bajás', 'alight', '', { label: c.destStop.address || c.destStop.name, stop: c.destStop }, 'Llegás ~' + fmtClockTime(c.destTime)) +
+        journeyStep('Bajás', 'alight', '', { label: c.destStop.address || c.destStop.name, stop: c.destStop }, (hasDestWalk ? 'Baja ~' : 'Llegás ~') + fmtClockTime(c.destTime)) +
+        destWalkStep(c) +
       '</div>';
     }).join('');
   }
@@ -569,38 +552,6 @@
     el.innerHTML = html;
   }
 
-  function updateSearchEnabled() {
-    document.getElementById('searchBtn').disabled = !(state.origin && state.dest);
-  }
-
-  function setOrigin(coords, label) {
-    state.origin = coords;
-    var el = document.getElementById('originStatus');
-    el.className = 'status-line ok';
-    el.textContent = label || ('Ubicación cargada (' + coords.lat.toFixed(5) + ', ' + coords.lon.toFixed(5) + ')');
-    updateSearchEnabled();
-  }
-  function setDest(coords, label) {
-    state.dest = coords;
-    var el = document.getElementById('destStatus');
-    el.className = 'status-line ok';
-    el.textContent = label || ('Destino cargado (' + coords.lat.toFixed(5) + ', ' + coords.lon.toFixed(5) + ')');
-    updateSearchEnabled();
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ lat: coords.lat, lon: coords.lon })); } catch (e) {}
-  }
-
-  document.getElementById('useMyLocation').addEventListener('click', function() {
-    var el = document.getElementById('originStatus');
-    el.className = 'status-line';
-    el.textContent = 'Ubicándote...';
-    getCurrentPosition().then(function(pos) {
-      setOrigin(pos, 'Tu ubicación (' + pos.lat.toFixed(5) + ', ' + pos.lon.toFixed(5) + ')');
-    }).catch(function(err) {
-      el.className = 'status-line err';
-      el.textContent = 'No pudimos usar tu ubicación (' + err.message + ').';
-    });
-  });
-
   function fetchGeocode(q) {
     var url = API_BASE + 'geocode.json?q=' + encodeURIComponent(q);
     return fetch(url).then(function(res) {
@@ -611,6 +562,188 @@
       return body.data;
     });
   }
+
+  function fetchReverseGeocode(lat, lon) {
+    var url = API_BASE + 'reverse.json?lat=' + lat + '&lon=' + lon;
+    return fetch(url).then(function(res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    }).then(function(body) {
+      if (body.code !== 200) throw new Error(body.text || ('código ' + body.code));
+      return body.data && body.data.label;
+    });
+  }
+
+  // ---------- Mapa persistente (Leaflet + tiles de CARTO) ----------
+  var TILE_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
+  function tileUrl() {
+    var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    return dark
+      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+      : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+  }
+
+  function pinIcon(color) {
+    return L.divIcon({
+      className: '',
+      html: '<div style="width:24px;height:24px;border-radius:50% 50% 50% 0;background:' + color +
+        ';border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.4);transform:rotate(-45deg);"></div>',
+      iconSize: [24, 24],
+      iconAnchor: [12, 24]
+    });
+  }
+
+  var leafletMap = L.map('mapContainer', { zoomControl: false }).setView([-32.89, -68.84], 13);
+  L.tileLayer(tileUrl(), { maxZoom: 20, subdomains: 'abcd', attribution: TILE_ATTRIBUTION }).addTo(leafletMap);
+  L.control.zoom({ position: 'bottomright' }).addTo(leafletMap);
+
+  var originMarker = null;
+  var destMarker = null;
+  var myLocationMarker = null;
+  var geoWatchId = null;
+  var armedTarget = null; // 'origin' | 'dest' | null
+  var popoverTarget = null;
+
+  function startLiveLocation() {
+    if (!navigator.geolocation) return;
+    geoWatchId = navigator.geolocation.watchPosition(function(pos) {
+      var lat = pos.coords.latitude, lon = pos.coords.longitude;
+      if (myLocationMarker) { myLocationMarker.setLatLng([lat, lon]); }
+      else {
+        myLocationMarker = L.marker([lat, lon], {
+          icon: L.divIcon({ className: 'my-location-dot', html: '', iconSize: [16, 16], iconAnchor: [8, 8] }),
+          zIndexOffset: 1000,
+          interactive: false
+        }).addTo(leafletMap);
+      }
+    }, function() { /* sin permiso o sin señal: seguimos sin el puntito */ }, {
+      enableHighAccuracy: true, maximumAge: 5000, timeout: 10000
+    });
+  }
+  startLiveLocation();
+
+  function defaultCoordLabel(coords) { return coords.lat.toFixed(5) + ', ' + coords.lon.toFixed(5); }
+
+  function setChipText(target, text, filled) {
+    var chip = document.getElementById(target === 'origin' ? 'originChip' : 'destChip');
+    var textEl = document.getElementById(target === 'origin' ? 'originChipText' : 'destChipText');
+    textEl.textContent = text;
+    chip.classList.toggle('filled', !!filled);
+  }
+
+  function placeMarker(target, coords) {
+    if (target === 'origin') {
+      if (originMarker) originMarker.setLatLng([coords.lat, coords.lon]);
+      else originMarker = L.marker([coords.lat, coords.lon], { icon: pinIcon('#1f9d55') }).addTo(leafletMap);
+    } else {
+      if (destMarker) destMarker.setLatLng([coords.lat, coords.lon]);
+      else destMarker = L.marker([coords.lat, coords.lon], { icon: pinIcon('#d92d20') }).addTo(leafletMap);
+    }
+  }
+
+  function fitMapToPoints() {
+    if (state.origin && state.dest) {
+      leafletMap.fitBounds(L.latLngBounds([
+        [state.origin.lat, state.origin.lon],
+        [state.dest.lat, state.dest.lon]
+      ]), { paddingTopLeft: [30, 170], paddingBottomRight: [30, 260] });
+    } else if (state.origin) {
+      leafletMap.setView([state.origin.lat, state.origin.lon], 15);
+    } else if (state.dest) {
+      leafletMap.setView([state.dest.lat, state.dest.lon], 15);
+    }
+  }
+
+  function armTarget(target) {
+    armedTarget = target;
+    document.getElementById('originChip').classList.toggle('armed', target === 'origin');
+    document.getElementById('destChip').classList.toggle('armed', target === 'dest');
+    var hint = document.getElementById('mapInstruction');
+    if (target === 'origin') hint.textContent = 'Tocá el mapa para marcar tu punto de partida.';
+    else if (target === 'dest') hint.textContent = 'Ahora tocá el mapa para marcar tu destino.';
+    else hint.textContent = (state.origin && state.dest)
+      ? 'Tocá "Buscar viaje", o un botón de arriba para cambiar un punto.'
+      : 'Tocá un botón de arriba, o directamente el mapa, para elegir tus puntos.';
+  }
+
+  function updateSearchEnabled() {
+    document.getElementById('searchBtn').disabled = !(state.origin && state.dest);
+  }
+
+  function onPointSet(justSet) {
+    if (justSet === 'origin') armTarget(state.dest ? null : 'dest');
+    else armTarget(state.origin ? null : 'origin');
+    fitMapToPoints();
+  }
+
+  function setOrigin(coords, label) {
+    state.origin = coords;
+    setChipText('origin', label || defaultCoordLabel(coords), true);
+    placeMarker('origin', coords);
+    updateSearchEnabled();
+    onPointSet('origin');
+  }
+  function setDest(coords, label) {
+    state.dest = coords;
+    setChipText('dest', label || defaultCoordLabel(coords), true);
+    placeMarker('dest', coords);
+    updateSearchEnabled();
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ lat: coords.lat, lon: coords.lon })); } catch (e) {}
+    onPointSet('dest');
+  }
+
+  function pickPointFromMap(target, lat, lon) {
+    var coords = { lat: lat, lon: lon };
+    if (target === 'origin') setOrigin(coords, 'Buscando la dirección...');
+    else setDest(coords, 'Buscando la dirección...');
+    fetchReverseGeocode(lat, lon).then(function(label) {
+      setChipText(target, label || defaultCoordLabel(coords), true);
+    }).catch(function() {
+      setChipText(target, defaultCoordLabel(coords), true);
+    });
+  }
+
+  leafletMap.on('click', function(e) {
+    if (!armedTarget) return;
+    pickPointFromMap(armedTarget, e.latlng.lat, e.latlng.lng);
+  });
+
+  // ---------- Popover: buscar dirección / pegar coordenadas / usar mi ubicación ----------
+  function openPopover(target) {
+    armTarget(target);
+    popoverTarget = target;
+    document.getElementById('popoverTitle').textContent = target === 'origin' ? 'Tu punto de partida' : 'Tu destino';
+    document.getElementById('useMyLocation').hidden = (target !== 'origin');
+    document.getElementById('popoverSearchLabel').textContent = target === 'origin' ? 'Buscá tu dirección de partida' : 'Buscá la dirección de destino';
+    document.getElementById('pointSearch').value = '';
+    document.getElementById('pointSuggest').hidden = true;
+    document.getElementById('pointSuggest').innerHTML = '';
+    document.getElementById('pointCoordsField').hidden = true;
+    document.getElementById('pointPaste').value = '';
+    document.getElementById('pickerPopover').hidden = false;
+  }
+  function closePopover() {
+    document.getElementById('pickerPopover').hidden = true;
+  }
+
+  document.getElementById('originChip').addEventListener('click', function() { openPopover('origin'); });
+  document.getElementById('destChip').addEventListener('click', function() { openPopover('dest'); });
+  document.getElementById('popoverClose').addEventListener('click', closePopover);
+
+  document.getElementById('useMyLocation').addEventListener('click', function() {
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = 'Ubicándote...';
+    getCurrentPosition().then(function(pos) {
+      setOrigin(pos, 'Tu ubicación (' + pos.lat.toFixed(5) + ', ' + pos.lon.toFixed(5) + ')');
+      closePopover();
+    }).catch(function(err) {
+      toast('No pudimos usar tu ubicación (' + err.message + ').');
+    }).then(function() {
+      btn.disabled = false;
+      btn.textContent = 'Usar mi ubicación';
+    });
+  });
 
   function setupAddressSearch(inputId, suggestId, onPick) {
     var input = document.getElementById(inputId);
@@ -656,244 +789,23 @@
     });
   }
 
-  setupAddressSearch('originSearch', 'originSuggest', function(coords, label) { setOrigin(coords, label); });
-  setupAddressSearch('destSearch', 'destSuggest', function(coords, label) { setDest(coords, label); });
+  setupAddressSearch('pointSearch', 'pointSuggest', function(coords, label) {
+    if (popoverTarget === 'origin') setOrigin(coords, label);
+    else setDest(coords, label);
+    closePopover();
+  });
 
-  document.getElementById('originToggleCoords').addEventListener('click', function() {
-    var f = document.getElementById('originCoordsField');
+  document.getElementById('pointToggleCoords').addEventListener('click', function() {
+    var f = document.getElementById('pointCoordsField');
     f.hidden = !f.hidden;
   });
-  document.getElementById('destToggleCoords').addEventListener('click', function() {
-    var f = document.getElementById('destCoordsField');
-    f.hidden = !f.hidden;
-  });
-
-  document.getElementById('originPaste').addEventListener('input', function(e) {
+  document.getElementById('pointPaste').addEventListener('input', function(e) {
     var parsed = parseMapsCoords(e.target.value);
-    if (parsed) setOrigin(parsed, 'Coordenadas pegadas (' + parsed.lat.toFixed(5) + ', ' + parsed.lon.toFixed(5) + ')');
-  });
-  document.getElementById('destPaste').addEventListener('input', function(e) {
-    var parsed = parseMapsCoords(e.target.value);
-    if (parsed) setDest(parsed, 'Coordenadas pegadas (' + parsed.lat.toFixed(5) + ', ' + parsed.lon.toFixed(5) + ')');
-  });
-
-  // ---------- Marcar en el mapa (Leaflet + tiles de CARTO) ----------
-  var leafletMap = null;
-  var pickedMarker = null;
-  var pickedCoords = null;
-  var mapTargetField = null; // 'origin' | 'dest' | 'both'
-  var bothStep = 'origin'; // 'origin' | 'dest' | 'done'
-  var bothOriginCoords = null;
-  var bothDestCoords = null;
-  var bothOriginMarker = null;
-  var bothDestMarker = null;
-  var myLocationMarker = null;
-  var geoWatchId = null;
-
-  var TILE_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
-  function tileUrl() {
-    var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-    return dark
-      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-      : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
-  }
-
-  function pinIcon(color) {
-    return L.divIcon({
-      className: '',
-      html: '<div style="width:22px;height:22px;border-radius:50% 50% 50% 0;background:' + color +
-        ';border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35);transform:rotate(-45deg);"></div>',
-      iconSize: [22, 22],
-      iconAnchor: [11, 22]
-    });
-  }
-
-  function clearPickerMarkers() {
-    if (!leafletMap) return;
-    if (pickedMarker) { leafletMap.removeLayer(pickedMarker); pickedMarker = null; }
-    if (bothOriginMarker) { leafletMap.removeLayer(bothOriginMarker); bothOriginMarker = null; }
-    if (bothDestMarker) { leafletMap.removeLayer(bothDestMarker); bothDestMarker = null; }
-  }
-
-  function startLiveLocation() {
-    stopLiveLocation();
-    if (!navigator.geolocation) return;
-    geoWatchId = navigator.geolocation.watchPosition(function(pos) {
-      if (!leafletMap) return;
-      var lat = pos.coords.latitude, lon = pos.coords.longitude;
-      if (myLocationMarker) { myLocationMarker.setLatLng([lat, lon]); }
-      else {
-        myLocationMarker = L.marker([lat, lon], {
-          icon: L.divIcon({ className: 'my-location-dot', html: '', iconSize: [16, 16], iconAnchor: [8, 8] }),
-          zIndexOffset: 1000,
-          interactive: false
-        }).addTo(leafletMap);
-      }
-    }, function() { /* sin permiso o sin señal: seguimos sin el puntito */ }, {
-      enableHighAccuracy: true, maximumAge: 5000, timeout: 10000
-    });
-  }
-
-  function stopLiveLocation() {
-    if (geoWatchId != null && navigator.geolocation) navigator.geolocation.clearWatch(geoWatchId);
-    geoWatchId = null;
-    if (myLocationMarker && leafletMap) { leafletMap.removeLayer(myLocationMarker); }
-    myLocationMarker = null;
-  }
-
-  function updateBothLabel(kind, text, ok) {
-    var el = document.getElementById(kind === 'origin' ? 'mapBothOriginLabel' : 'mapBothDestLabel');
-    el.className = 'status-line' + (ok ? ' ok' : '');
-    el.textContent = (kind === 'origin' ? 'Origen: ' : 'Destino: ') + text;
-  }
-
-  function reverseLabelBoth(kind, lat, lon) {
-    updateBothLabel(kind, 'buscando la dirección...', false);
-    fetchReverseGeocode(lat, lon).then(function(label) {
-      updateBothLabel(kind, label || (lat.toFixed(5) + ', ' + lon.toFixed(5)), true);
-    }).catch(function() {
-      updateBothLabel(kind, lat.toFixed(5) + ', ' + lon.toFixed(5), true);
-    });
-  }
-
-  function handleBothClick(lat, lon) {
-    if (bothStep === 'origin') {
-      bothOriginCoords = { lat: lat, lon: lon };
-      if (bothOriginMarker) bothOriginMarker.setLatLng([lat, lon]);
-      else bothOriginMarker = L.marker([lat, lon], { icon: pinIcon('#1f9d55') }).addTo(leafletMap);
-      reverseLabelBoth('origin', lat, lon);
-      bothStep = 'dest';
-      document.getElementById('mapSheetTitle').textContent = 'Ahora tocá tu destino';
-    } else {
-      bothDestCoords = { lat: lat, lon: lon };
-      if (bothDestMarker) bothDestMarker.setLatLng([lat, lon]);
-      else bothDestMarker = L.marker([lat, lon], { icon: pinIcon('#d92d20') }).addTo(leafletMap);
-      reverseLabelBoth('dest', lat, lon);
-      bothStep = 'done';
-      document.getElementById('mapSheetTitle').textContent = 'Ajustá si hace falta, o confirmá';
-    }
-    document.getElementById('mapConfirmBtn').disabled = !(bothOriginCoords && bothDestCoords);
-    document.getElementById('mapRestartBoth').hidden = !(bothOriginCoords || bothDestCoords);
-  }
-
-  function fetchReverseGeocode(lat, lon) {
-    var url = API_BASE + 'reverse.json?lat=' + lat + '&lon=' + lon;
-    return fetch(url).then(function(res) {
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      return res.json();
-    }).then(function(body) {
-      if (body.code !== 200) throw new Error(body.text || ('código ' + body.code));
-      return body.data && body.data.label;
-    });
-  }
-
-  function setPickedPoint(lat, lon, skipMove) {
-    pickedCoords = { lat: lat, lon: lon };
-    if (pickedMarker) { pickedMarker.setLatLng([lat, lon]); }
-    else { pickedMarker = L.marker([lat, lon], { icon: pinIcon('#2f7dd6') }).addTo(leafletMap); }
-    if (!skipMove) leafletMap.panTo([lat, lon]);
-    document.getElementById('mapConfirmBtn').disabled = false;
-    var labelEl = document.getElementById('mapPickedLabel');
-    labelEl.className = 'status-line';
-    labelEl.textContent = 'Buscando la dirección...';
-    fetchReverseGeocode(lat, lon).then(function(label) {
-      labelEl.className = 'status-line ok';
-      labelEl.textContent = label || (lat.toFixed(5) + ', ' + lon.toFixed(5));
-    }).catch(function() {
-      labelEl.className = 'status-line ok';
-      labelEl.textContent = lat.toFixed(5) + ', ' + lon.toFixed(5);
-    });
-  }
-
-  function openMapPicker(target) {
-    mapTargetField = target;
-    var isBoth = target === 'both';
-
-    document.getElementById('mapSingleLabelWrap').hidden = isBoth;
-    document.getElementById('mapBothLabelWrap').hidden = !isBoth;
-    document.getElementById('mapRestartBoth').hidden = true;
-    document.getElementById('mapConfirmBtn').disabled = true;
-    document.getElementById('mapConfirmBtn').textContent = isBoth ? 'Usar estos puntos' : 'Usar este punto';
-    document.getElementById('mapHint').textContent = isBoth
-      ? 'Primero tocá tu punto de partida, después el destino. Podés tocar de nuevo para ajustar el destino.'
-      : 'Tocá el mapa donde querés marcar el punto.';
-    document.getElementById('mapOverlay').hidden = false;
-
-    clearPickerMarkers();
-
-    if (isBoth) {
-      bothStep = 'origin';
-      bothOriginCoords = null;
-      bothDestCoords = null;
-      updateBothLabel('origin', 'tocá el mapa para marcarlo.', false);
-      updateBothLabel('dest', '—', false);
-      document.getElementById('mapSheetTitle').textContent = 'Tocá tu punto de partida';
-    } else {
-      pickedCoords = null;
-      document.getElementById('mapPickedLabel').className = 'status-line';
-      document.getElementById('mapPickedLabel').textContent = 'Todavía no tocaste el mapa.';
-      document.getElementById('mapSheetTitle').textContent = target === 'origin' ? 'Marcar punto de partida' : 'Marcar destino';
-    }
-
-    if (!leafletMap) {
-      leafletMap = L.map('mapContainer').setView([-32.89, -68.84], 13);
-      L.tileLayer(tileUrl(), {
-        maxZoom: 20,
-        subdomains: 'abcd',
-        attribution: TILE_ATTRIBUTION
-      }).addTo(leafletMap);
-      leafletMap.on('click', function(e) {
-        if (mapTargetField === 'both') handleBothClick(e.latlng.lat, e.latlng.lng);
-        else setPickedPoint(e.latlng.lat, e.latlng.lng);
-      });
-    }
-    setTimeout(function() { leafletMap.invalidateSize(); }, 60);
-
-    if (!isBoth) {
-      var existing = target === 'origin' ? state.origin : state.dest;
-      if (existing) {
-        leafletMap.setView([existing.lat, existing.lon], 16);
-        setPickedPoint(existing.lat, existing.lon, true);
-      }
-    }
-
-    startLiveLocation();
-  }
-
-  function closeMapSheet() {
-    document.getElementById('mapOverlay').hidden = true;
-    stopLiveLocation();
-  }
-
-  document.getElementById('pinOrigin').addEventListener('click', function() { openMapPicker('origin'); });
-  document.getElementById('pinDest').addEventListener('click', function() { openMapPicker('dest'); });
-  document.getElementById('pickBothOnMap').addEventListener('click', function() { openMapPicker('both'); });
-  document.getElementById('mapClose').addEventListener('click', closeMapSheet);
-  document.getElementById('mapRestartBoth').addEventListener('click', function() {
-    clearPickerMarkers();
-    bothStep = 'origin';
-    bothOriginCoords = null;
-    bothDestCoords = null;
-    updateBothLabel('origin', 'tocá el mapa para marcarlo.', false);
-    updateBothLabel('dest', '—', false);
-    document.getElementById('mapSheetTitle').textContent = 'Tocá tu punto de partida';
-    document.getElementById('mapConfirmBtn').disabled = true;
-    document.getElementById('mapRestartBoth').hidden = true;
-  });
-  document.getElementById('mapConfirmBtn').addEventListener('click', function() {
-    if (mapTargetField === 'both') {
-      if (!bothOriginCoords || !bothDestCoords) return;
-      var originLabel = document.getElementById('mapBothOriginLabel').textContent.replace(/^Origen:\s*/, '');
-      var destLabel = document.getElementById('mapBothDestLabel').textContent.replace(/^Destino:\s*/, '');
-      setOrigin(bothOriginCoords, originLabel);
-      setDest(bothDestCoords, destLabel);
-    } else {
-      if (!pickedCoords) return;
-      var label = document.getElementById('mapPickedLabel').textContent;
-      if (mapTargetField === 'origin') setOrigin(pickedCoords, label);
-      else setDest(pickedCoords, label);
-    }
-    closeMapSheet();
+    if (!parsed) return;
+    var label = 'Coordenadas pegadas (' + parsed.lat.toFixed(5) + ', ' + parsed.lon.toFixed(5) + ')';
+    if (popoverTarget === 'origin') setOrigin(parsed, label);
+    else setDest(parsed, label);
+    closePopover();
   });
 
   document.getElementById('searchBtn').addEventListener('click', function() {
@@ -916,6 +828,9 @@
       });
   });
 
+  armTarget('origin');
+  document.getElementById('resultsArea').innerHTML = '<p class="empty-hint">Datos en vivo de Mendotran (OneBusAway). Esta página no reemplaza a la app oficial.</p>';
+
   // Permite que otras apps abran TransportArte con el viaje precargado:
   // ?fromLat=&fromLon=&toLat=&toLon=
   (function initFromQuery() {
@@ -932,8 +847,6 @@
       setTimeout(function() { document.getElementById('searchBtn').click(); }, 50);
     }
   })();
-
-  document.getElementById('resultsArea').innerHTML = '<p class="empty-hint">Definí desde dónde salís y a dónde vas, y tocá "Buscar viaje".</p>';
 })();
 </script>
 </body>

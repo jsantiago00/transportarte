@@ -100,16 +100,23 @@ function haversine(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function findNearestStops(lat, lon, limit) {
-  return fetchOBA("stops-for-location.json", { lat, lon, latSpan: 0.01, lonSpan: 0.01 })
+// Devuelve las paradas más cercanas a (lat, lon), cada una con walkMeters: la distancia
+// a pie hasta ese punto. Si maxMeters está definido, prioriza las que caen dentro de ese
+// radio (para poder ofrecer "caminá hasta acá"); si ninguna entra, no descarta todo el
+// resultado, sino que sigue con las más cercanas igual, aunque estén más lejos.
+function findNearestStops(lat, lon, limit, maxMeters) {
+  return fetchOBA("stops-for-location.json", { lat, lon, latSpan: 0.02, lonSpan: 0.02 })
     .then((data) => {
       const list = data.list || data.stops || [];
       if (!list.length) throw new Error("Sin paradas cercanas");
-      return list
-        .map((s) => ({ stop: s, d: haversine(lat, lon, s.lat, s.lon) }))
-        .sort((a, b) => a.d - b.d)
-        .slice(0, limit || 5)
-        .map((x) => x.stop);
+      let withDist = list
+        .map((s) => ({ stop: s, meters: haversine(lat, lon, s.lat, s.lon) * 1000 }))
+        .sort((a, b) => a.meters - b.meters);
+      if (maxMeters) {
+        const within = withDist.filter((x) => x.meters <= maxMeters);
+        if (within.length) withDist = within;
+      }
+      return withDist.slice(0, limit || 5).map((x) => Object.assign({}, x.stop, { walkMeters: Math.round(x.meters) }));
     });
 }
 
@@ -176,18 +183,31 @@ function findDirectCandidates(originResults, destStops, limit) {
       const a = r.item.arrival;
       const originPredicted = a.predictedArrivalTime || a.scheduledArrivalTime;
       const destPredicted = originPredicted + (destEntry.arrivalTime - originEntry.arrivalTime) * 1000;
+      const originWalkMeters = r.item.stop.walkMeters || 0;
+      const destWalkMeters = destStop.walkMeters || 0;
+      const destWalkMs = (destWalkMeters / WALK_SPEED_M_PER_MIN) * 60000;
       candidates.push({
         route: a.routeShortName || a.routeId || "",
         headsign: a.tripHeadsign || "",
         originStop: r.item.stop,
         originTime: originPredicted,
+        originWalkMeters,
         destStop,
         destTime: destPredicted,
+        destWalkMeters,
+        arrivalTime: destPredicted + destWalkMs,
+        totalWalkMeters: originWalkMeters + destWalkMeters,
       });
     });
-    const cutoff = Date.now() - 30000;
-    candidates = candidates.filter((c) => c.originTime > cutoff);
-    candidates.sort((a, b) => a.originTime - b.originTime);
+    const now = Date.now();
+    // Sólo sirve si, caminando desde el origen real hasta la parada, todavía llegás a tiempo.
+    candidates = candidates.filter((c) => {
+      const originWalkMs = (c.originWalkMeters / WALK_SPEED_M_PER_MIN) * 60000;
+      return c.originTime >= now + originWalkMs - 30000;
+    });
+    // Prioriza el viaje más rápido de punta a punta (incluyendo la caminata final) y,
+    // ante un empate, el que implique menos caminata en total.
+    candidates.sort((a, b) => (a.arrivalTime - b.arrivalTime) || (a.totalWalkMeters - b.totalWalkMeters));
     return candidates.slice(0, limit || 5);
   });
 }
@@ -271,10 +291,12 @@ function buildCoverageMap(destResults, destStops, limit) {
   });
 }
 
-// Caminar una cuadra hasta otra parada para el segundo colectivo también cuenta como
-// transbordo válido - no hace falta que sea exactamente la misma parada donde bajaste.
+// Caminar hasta otra parada para el segundo colectivo también cuenta como transbordo
+// válido - no hace falta que sea exactamente la misma parada donde bajaste. El mismo tope
+// aplica para la caminata inicial (origen -> parada de subida) y la final (parada de
+// bajada -> destino real).
 const WALK_SPEED_M_PER_MIN = 70; // paso tranquilo, con margen
-const MAX_WALK_METERS = 500; // ~6-7 min caminando
+const MAX_WALK_METERS = 700; // ~10 min caminando
 
 function findTwoLegCandidates(reachable, coverage, limit) {
   const coverageList = Object.keys(coverage).map((code) => Object.assign({ code }, coverage[code]));
@@ -298,22 +320,31 @@ function findTwoLegCandidates(reachable, coverage, limit) {
     });
 
     if (best) {
+      const originWalkMeters = reach.originStop.walkMeters || 0;
+      const transferWalkMeters = Math.round(best.walkMeters);
+      const destWalkMeters = (best.cov.destStop && best.cov.destStop.walkMeters) || 0;
+      const destWalkMs = (destWalkMeters / WALK_SPEED_M_PER_MIN) * 60000;
       candidates.push({
         leg1Route: reach.route, leg1Headsign: reach.headsign,
-        originStop: reach.originStop, originTime: reach.originTime,
+        originStop: reach.originStop, originTime: reach.originTime, originWalkMeters,
         transferStop: reach.stopRef, transferArrival: reach.arrivalTime,
-        walkMeters: Math.round(best.walkMeters),
-        boardStop: best.walkMeters > 0 ? best.cov.stopRef : null,
+        walkMeters: transferWalkMeters,
+        boardStop: transferWalkMeters > 0 ? best.cov.stopRef : null,
         transferBoard: best.cov.boardTime,
         leg2Route: best.cov.route, leg2Headsign: best.cov.headsign,
-        destStop: best.cov.destStop, destTime: best.cov.destTime,
+        destStop: best.cov.destStop, destTime: best.cov.destTime, destWalkMeters,
+        arrivalTime: best.cov.destTime + destWalkMs,
+        totalWalkMeters: originWalkMeters + transferWalkMeters + destWalkMeters,
       });
     }
   });
 
-  const cutoff = Date.now() - 30000;
-  candidates = candidates.filter((c) => c.originTime > cutoff && c.transferBoard > cutoff);
-  candidates.sort((a, b) => a.originTime - b.originTime);
+  const now = Date.now();
+  candidates = candidates.filter((c) => {
+    const originWalkMs = (c.originWalkMeters / WALK_SPEED_M_PER_MIN) * 60000;
+    return c.originTime >= now + originWalkMs - 30000 && c.transferBoard > now - 30000;
+  });
+  candidates.sort((a, b) => (a.arrivalTime - b.arrivalTime) || (a.totalWalkMeters - b.totalWalkMeters));
   return candidates.slice(0, limit || 5);
 }
 
@@ -332,8 +363,8 @@ async function handleRoute(url) {
   let originStops, destStops;
   try {
     [originStops, destStops] = await Promise.all([
-      findNearestStops(fromLat, fromLon, 5),
-      findNearestStops(toLat, toLon, 5),
+      findNearestStops(fromLat, fromLon, 8, MAX_WALK_METERS),
+      findNearestStops(toLat, toLon, 8, MAX_WALK_METERS),
     ]);
   } catch (err) {
     return json({ code: 502, text: "No se encontraron paradas cercanas: " + err.message }, 502);
