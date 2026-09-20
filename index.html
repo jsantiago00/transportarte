@@ -30,8 +30,27 @@
     --danger: #d92d20;
     --danger-bg: #fde8e6;
   }
+  /* Modo oscuro: por preferencia del sistema, o forzado a mano con el botón
+     ☀️/🌙 (guardado en localStorage vía data-theme). Un data-theme explícito
+     siempre gana por encima de lo que diga el sistema operativo. */
+  :root[data-palette="cielo"][data-theme="dark"] {
+    --bg: #0f1720;
+    --surface: #16212c;
+    --surface-2: #1e2b38;
+    --text: #e7eef5;
+    --muted: #93a6b8;
+    --border: #2a3a4a;
+    --primary: #5b9be8;
+    --primary-dark: #3f7dd0;
+    --success: #34c471;
+    --success-bg: #113322;
+    --warning: #e0ac48;
+    --warning-bg: #3a2c0c;
+    --danger: #f16a5e;
+    --danger-bg: #3a1613;
+  }
   @media (prefers-color-scheme: dark) {
-    :root[data-palette="cielo"] {
+    :root[data-palette="cielo"]:not([data-theme="light"]) {
       --bg: #0f1720;
       --surface: #16212c;
       --surface-2: #1e2b38;
@@ -64,30 +83,55 @@
   input, select, textarea { font-family: inherit; font-size: 16px; }
 
   #mapContainer { position: fixed; inset: 0; z-index: 0; background: var(--surface-2); }
-
-  .map-ui-top {
-    position: fixed;
-    top: 0; left: 0; right: 0;
-    z-index: 30;
-    padding: calc(12px + env(safe-area-inset-top, 0px)) 12px 0;
-    pointer-events: none;
+  /* El basemap con calles (Esri World Street Map, sin API key) no tiene una
+     variante oscura gratis: en modo oscuro invertimos sus colores con un
+     filtro CSS en vez de pedir tiles que no existen. */
+  :root[data-theme="dark"] #mapContainer .leaflet-tile-pane {
+    filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.95) saturate(0.85);
   }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) #mapContainer .leaflet-tile-pane {
+      filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.95) saturate(0.85);
+    }
+  }
+
   .brand-tiny {
-    display: block;
+    position: fixed;
+    top: calc(12px + env(safe-area-inset-top, 0px));
+    left: 14px;
+    z-index: 25;
     font-family: 'Fraunces', Georgia, serif;
     font-weight: 600;
     font-size: 13px;
-    color: #fff;
-    text-shadow: 0 1px 4px rgba(0,0,0,0.55);
-    margin: 0 0 8px 3px;
+    color: var(--text);
+    background: var(--surface);
+    padding: 6px 12px;
+    border-radius: 999px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.18);
   }
+  .theme-toggle-btn {
+    position: fixed;
+    top: calc(12px + env(safe-area-inset-top, 0px));
+    right: 12px;
+    z-index: 32;
+    width: 38px; height: 38px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
   .point-chip {
-    pointer-events: auto;
     display: flex;
     align-items: center;
     gap: 9px;
     width: 100%;
-    background: var(--surface);
+    background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: 12px;
     padding: 11px 12px;
@@ -95,7 +139,6 @@
     font-weight: 600;
     color: var(--muted);
     cursor: pointer;
-    box-shadow: 0 4px 14px rgba(0,0,0,0.18);
     text-align: left;
   }
   .point-chip + .point-chip { margin-top: 7px; }
@@ -106,24 +149,20 @@
   .chip-dot-dest { background: var(--danger); }
   .chip-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-  .map-instruction {
-    pointer-events: none;
-    margin: 8px 3px 0;
-    font-size: 12px;
+  .sheet-hint {
+    margin: 8px 2px 0;
+    font-size: 11.5px;
     font-weight: 700;
-    color: #fff;
-    text-shadow: 0 1px 4px rgba(0,0,0,0.65);
+    color: var(--muted);
   }
 
   .picker-popover {
-    pointer-events: auto;
     margin-top: 8px;
-    background: var(--surface);
+    background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: 16px;
     padding: 14px;
-    box-shadow: 0 8px 26px rgba(0,0,0,0.22);
-    max-height: 60vh;
+    max-height: 42vh;
     overflow-y: auto;
   }
   .popover-head {
@@ -135,7 +174,7 @@
   .popover-head span { font-family: 'Fraunces', Georgia, serif; font-weight: 600; font-size: 15px; }
   .popover-head button {
     border: none;
-    background: var(--surface-2);
+    background: var(--surface);
     width: 28px; height: 28px;
     border-radius: 50%;
     font-size: 14px;
@@ -150,7 +189,7 @@
     padding: 10px 11px;
     border: 1px solid var(--border);
     border-radius: 10px;
-    background: var(--surface-2);
+    background: var(--surface);
     color: var(--text);
   }
   .btn {
@@ -215,11 +254,30 @@
     background: var(--surface);
     border-radius: 20px 20px 0 0;
     box-shadow: 0 -6px 24px rgba(0,0,0,0.2);
-    padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px));
-    max-height: 66vh;
+    padding: 10px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+    max-height: 78vh;
     display: flex;
     flex-direction: column;
   }
+  .sheet-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    background: none;
+    border: none;
+    padding: 6px 2px;
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--text);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .sheet-summary span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sheet-chevron { color: var(--muted); font-size: 11px; flex-shrink: 0; }
+  #sheetBody { flex-shrink: 0; padding-bottom: 4px; }
+
   .search-btn {
     display: block;
     width: 100%;
@@ -233,11 +291,12 @@
     cursor: pointer;
     box-shadow: 0 6px 16px -3px var(--primary-dark);
     flex-shrink: 0;
+    margin-top: 10px;
   }
   .search-btn:disabled { opacity: 0.6; cursor: default; }
 
   #resultsArea { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
-  #resultsArea:not(:empty) { margin-bottom: 10px; }
+  #resultsArea:not(:empty) { margin-bottom: 4px; }
 
   .section-title {
     font-size: 12.5px;
@@ -329,37 +388,43 @@
 
 <div id="mapContainer"></div>
 
-<div class="map-ui-top">
-  <span class="brand-tiny">TransportArte</span>
-  <button class="point-chip" id="originChip" type="button">
-    <span class="chip-dot chip-dot-origin"></span>
-    <span class="chip-text" id="originChipText">Elegí tu punto de partida</span>
-  </button>
-  <button class="point-chip" id="destChip" type="button">
-    <span class="chip-dot chip-dot-dest"></span>
-    <span class="chip-text" id="destChipText">Elegí tu destino</span>
-  </button>
-  <p class="map-instruction" id="mapInstruction">Tocá un botón de arriba, o directamente el mapa, para elegir tus puntos.</p>
+<span class="brand-tiny">TransportArte</span>
+<button class="theme-toggle-btn" id="themeToggleBtn" type="button">🌙</button>
 
-  <div class="picker-popover" id="pickerPopover" hidden>
-    <div class="popover-head">
-      <span id="popoverTitle">Origen</span>
-      <button id="popoverClose" type="button">✕</button>
-    </div>
-    <button class="btn btn-primary btn-full" id="useMyLocation" type="button">Usar mi ubicación</button>
-    <div class="field" style="margin-top:10px;">
-      <label id="popoverSearchLabel">Buscá una dirección</label>
-      <input type="text" id="pointSearch" placeholder="Ej: San Martín 1234, o Shopping Palmares" autocomplete="off">
-      <div class="suggest-list" id="pointSuggest" hidden></div>
-    </div>
-    <button class="link-toggle" id="pointToggleCoords" type="button">¿Preferís pegar coordenadas o un link de Maps?</button>
-    <div class="field" id="pointCoordsField" hidden>
-      <input type="text" id="pointPaste" placeholder="-32,90 -68,84 o link de Maps">
+<div class="bottom-card" id="bottomCard">
+  <button class="sheet-summary" id="sheetSummary" type="button">
+    <span id="sheetSummaryText">Elegí tu origen y destino</span>
+    <span class="sheet-chevron" id="sheetChevron">▴</span>
+  </button>
+  <div id="sheetBody">
+    <button class="point-chip" id="originChip" type="button">
+      <span class="chip-dot chip-dot-origin"></span>
+      <span class="chip-text" id="originChipText">Elegí tu punto de partida</span>
+    </button>
+    <button class="point-chip" id="destChip" type="button">
+      <span class="chip-dot chip-dot-dest"></span>
+      <span class="chip-text" id="destChipText">Elegí tu destino</span>
+    </button>
+    <p class="sheet-hint" id="mapInstruction">Tocá un botón de arriba, o directamente el mapa, para elegir tus puntos. Tocando un pin puesto en el mapa lo borrás para volver a marcarlo.</p>
+
+    <div class="picker-popover" id="pickerPopover" hidden>
+      <div class="popover-head">
+        <span id="popoverTitle">Origen</span>
+        <button id="popoverClose" type="button">✕</button>
+      </div>
+      <button class="btn btn-primary btn-full" id="useMyLocation" type="button">Usar mi ubicación</button>
+      <div class="field" style="margin-top:10px;">
+        <label id="popoverSearchLabel">Buscá una dirección</label>
+        <input type="text" id="pointSearch" placeholder="Ej: San Martín 1234, o Shopping Palmares" autocomplete="off">
+        <div class="suggest-list" id="pointSuggest" hidden></div>
+      </div>
+      <button class="link-toggle" id="pointToggleCoords" type="button">¿Preferís pegar coordenadas o un link de Maps?</button>
+      <div class="field" id="pointCoordsField" hidden>
+        <input type="text" id="pointPaste" placeholder="-32,90 -68,84 o link de Maps">
+      </div>
     </div>
   </div>
-</div>
 
-<div class="bottom-card">
   <div id="resultsArea"></div>
   <button class="search-btn" id="searchBtn" type="button" disabled>Buscar viaje</button>
 </div>
@@ -367,12 +432,14 @@
 <div id="toastRoot"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="https://unpkg.com/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylineDecorator.js"></script>
 <script>
 (function(){
   "use strict";
 
   var API_BASE = 'https://api.santiagososa.com.ar/';
   var STORAGE_KEY = 'transportarte_last_v1';
+  var THEME_KEY = 'transportarte_theme_v1';
 
   var state = { origin: null, dest: null };
 
@@ -393,6 +460,28 @@
     document.getElementById('toastRoot').appendChild(el);
     setTimeout(function() { el.remove(); }, 2600);
   }
+
+  // ---------- Modo claro / oscuro ----------
+  function currentEffectiveDark() {
+    var explicit = document.documentElement.getAttribute('data-theme');
+    if (explicit) return explicit === 'dark';
+    return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  }
+  function applyTheme(theme) {
+    if (theme) document.documentElement.setAttribute('data-theme', theme);
+    else document.documentElement.removeAttribute('data-theme');
+    document.getElementById('themeToggleBtn').textContent = currentEffectiveDark() ? '☀️' : '🌙';
+  }
+  document.getElementById('themeToggleBtn').addEventListener('click', function() {
+    var next = currentEffectiveDark() ? 'light' : 'dark';
+    try { localStorage.setItem(THEME_KEY, next); } catch (e) {}
+    applyTheme(next);
+  });
+  (function initTheme() {
+    var saved = null;
+    try { saved = localStorage.getItem(THEME_KEY); } catch (e) {}
+    applyTheme(saved);
+  })();
 
   function parseMapsCoords(text) {
     text = (text || '').trim();
@@ -579,19 +668,13 @@
   }
 
   // ---------- Mapa persistente (Leaflet + tiles de Esri, sin API key) ----------
-  // El basemap "bonito" anterior (CARTO Voyager/Dark Matter) dejó de ofrecer tiles
-  // anónimas gratis y ahora devuelve un watermark de "API KEY REQUIRED" en su lugar.
-  // El basemap "Canvas" gris minimalista de Esri sigue siendo gratuito sin
-  // registrarse y tiene una variante oscura real (no un filtro CSS inventado).
-  // Ojo: su detalle nativo llega hasta zoom 16; más cerca, Leaflet agranda esa
-  // última tile (maxNativeZoom) en vez de pedir una que no existe.
-  var TILE_ATTRIBUTION = 'Tiles &copy; <a href="https://www.esri.com">Esri</a> — Esri, HERE, Garmin, ' +
+  // Usamos World Street Map: a diferencia del basemap "Canvas" minimalista que
+  // probamos antes, éste sí trae nombres de calles secundarias, no sólo las
+  // principales. No tiene variante oscura gratis, así que el modo oscuro se
+  // logra invirtiendo sus colores con CSS (ver la regla de .leaflet-tile-pane).
+  var TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
+  var TILE_ATTRIBUTION = 'Tiles &copy; <a href="https://www.esri.com">Esri</a> — Esri, HERE, Garmin, USGS, Intermap, ' +
     '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, GIS User Community';
-  function tileUrl() {
-    var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-    var style = dark ? 'World_Dark_Gray_Base' : 'World_Light_Gray_Base';
-    return 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/' + style + '/MapServer/tile/{z}/{y}/{x}';
-  }
 
   function pinIcon(color) {
     return L.divIcon({
@@ -604,7 +687,7 @@
   }
 
   var leafletMap = L.map('mapContainer', { zoomControl: false }).setView([-32.89, -68.84], 13);
-  L.tileLayer(tileUrl(), { maxZoom: 19, maxNativeZoom: 16, attribution: TILE_ATTRIBUTION }).addTo(leafletMap);
+  L.tileLayer(TILE_URL, { maxZoom: 19, attribution: TILE_ATTRIBUTION }).addTo(leafletMap);
   L.control.zoom({ position: 'bottomright' }).addTo(leafletMap);
 
   var originMarker = null;
@@ -649,8 +732,10 @@
     routeLineLayers = [];
   }
 
-  // Dibuja el/los recorrido(s) real(es) de una opción de viaje. shapeId2 sólo
-  // se usa en combinaciones con transbordo (una línea por tramo).
+  // Dibuja el/los recorrido(s) real(es) de una opción de viaje, con flechitas
+  // que marcan el sentido de circulación (las líneas se cruzan y sin eso no
+  // se distingue para dónde va cada colectivo). shapeId2 sólo se usa en
+  // combinaciones con transbordo (una línea por tramo).
   function drawCandidateRoute(shapeId1, shapeId2) {
     clearRouteLines();
     var ids = [shapeId1, shapeId2].filter(Boolean);
@@ -658,13 +743,22 @@
     Promise.all(ids.map(function(id) {
       return fetchShapePoints(id).catch(function() { return null; });
     })).then(function(results) {
+      var allPoints = [];
       results.forEach(function(coords) {
-        if (!coords) return;
-        routeLineLayers.push(L.polyline(coords, { color: '#2f7dd6', weight: 5, opacity: 0.85 }).addTo(leafletMap));
+        if (!coords || !coords.length) return;
+        var line = L.polyline(coords, { color: '#2f7dd6', weight: 5, opacity: 0.85 }).addTo(leafletMap);
+        routeLineLayers.push(line);
+        var decorator = L.polylineDecorator(line, {
+          patterns: [{
+            offset: 20, repeat: 90,
+            symbol: L.Symbol.arrowHead({ pixelSize: 11, polygon: false, pathOptions: { color: '#123f7a', weight: 3, opacity: 0.9 } })
+          }]
+        }).addTo(leafletMap);
+        routeLineLayers.push(decorator);
+        allPoints = allPoints.concat(coords);
       });
-      if (!routeLineLayers.length) { toast('No pudimos cargar el recorrido de esta línea.'); return; }
-      var group = L.featureGroup(routeLineLayers);
-      leafletMap.fitBounds(group.getBounds(), { paddingTopLeft: [30, 170], paddingBottomRight: [30, 260] });
+      if (!allPoints.length) { toast('No pudimos cargar el recorrido de esta línea.'); return; }
+      leafletMap.fitBounds(L.latLngBounds(allPoints), { paddingTopLeft: [30, 60], paddingBottomRight: [30, 280] });
     });
   }
 
@@ -698,20 +792,60 @@
 
   function defaultCoordLabel(coords) { return coords.lat.toFixed(5) + ', ' + coords.lon.toFixed(5); }
 
+  // ---------- Panel inferior: minimizar/expandir el selector de origen/destino ----------
+  function setSheetCollapsed(collapsed) {
+    document.getElementById('sheetBody').hidden = collapsed;
+    document.getElementById('sheetChevron').textContent = collapsed ? '▾' : '▴';
+  }
+  document.getElementById('sheetSummary').addEventListener('click', function() {
+    setSheetCollapsed(!document.getElementById('sheetBody').hidden);
+  });
+  function updateSheetSummary() {
+    var el = document.getElementById('sheetSummaryText');
+    if (!state.origin && !state.dest) { el.textContent = 'Elegí tu origen y destino'; return; }
+    var o = state.origin ? document.getElementById('originChipText').textContent : '¿Origen?';
+    var d = state.dest ? document.getElementById('destChipText').textContent : '¿Destino?';
+    el.textContent = o + '  →  ' + d;
+  }
+
   function setChipText(target, text, filled) {
     var chip = document.getElementById(target === 'origin' ? 'originChip' : 'destChip');
     var textEl = document.getElementById(target === 'origin' ? 'originChipText' : 'destChipText');
     textEl.textContent = text;
     chip.classList.toggle('filled', !!filled);
+    updateSheetSummary();
+  }
+
+  // Tocar el pin puesto en el mapa lo borra y arma ese mismo color para el
+  // próximo toque - así se puede corregir un punto sin pasar por el popover.
+  function clearPoint(target) {
+    if (target === 'origin') {
+      state.origin = null;
+      if (originMarker) { leafletMap.removeLayer(originMarker); originMarker = null; }
+      setChipText('origin', 'Elegí tu punto de partida', false);
+    } else {
+      state.dest = null;
+      if (destMarker) { leafletMap.removeLayer(destMarker); destMarker = null; }
+      setChipText('dest', 'Elegí tu destino', false);
+    }
+    updateSearchEnabled();
+    clearRouteLines();
+    armTarget(target);
   }
 
   function placeMarker(target, coords) {
     if (target === 'origin') {
       if (originMarker) originMarker.setLatLng([coords.lat, coords.lon]);
-      else originMarker = L.marker([coords.lat, coords.lon], { icon: pinIcon('#1f9d55') }).addTo(leafletMap);
+      else {
+        originMarker = L.marker([coords.lat, coords.lon], { icon: pinIcon('#1f9d55') }).addTo(leafletMap);
+        originMarker.on('click', function() { clearPoint('origin'); });
+      }
     } else {
       if (destMarker) destMarker.setLatLng([coords.lat, coords.lon]);
-      else destMarker = L.marker([coords.lat, coords.lon], { icon: pinIcon('#d92d20') }).addTo(leafletMap);
+      else {
+        destMarker = L.marker([coords.lat, coords.lon], { icon: pinIcon('#d92d20') }).addTo(leafletMap);
+        destMarker.on('click', function() { clearPoint('dest'); });
+      }
     }
   }
 
@@ -720,7 +854,7 @@
       leafletMap.fitBounds(L.latLngBounds([
         [state.origin.lat, state.origin.lon],
         [state.dest.lat, state.dest.lon]
-      ]), { paddingTopLeft: [30, 170], paddingBottomRight: [30, 260] });
+      ]), { paddingTopLeft: [30, 60], paddingBottomRight: [30, 280] });
     } else if (state.origin) {
       leafletMap.setView([state.origin.lat, state.origin.lon], 15);
     } else if (state.dest) {
@@ -735,9 +869,10 @@
     var hint = document.getElementById('mapInstruction');
     if (target === 'origin') hint.textContent = 'Tocá el mapa para marcar tu punto de partida.';
     else if (target === 'dest') hint.textContent = 'Ahora tocá el mapa para marcar tu destino.';
-    else hint.textContent = (state.origin && state.dest)
-      ? 'Tocá "Buscar viaje", o un botón de arriba para cambiar un punto.'
-      : 'Tocá un botón de arriba, o directamente el mapa, para elegir tus puntos.';
+    else hint.textContent = 'Tocá "Buscar viaje", o un pin en el mapa para volver a marcarlo.';
+    // Con ambos puntos listos, minimizamos el selector para dejar ver el mapa;
+    // apenas hay que elegir (o corregir) un punto, lo volvemos a expandir.
+    setSheetCollapsed(target === null && !!(state.origin && state.dest));
   }
 
   function updateSearchEnabled() {
