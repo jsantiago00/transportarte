@@ -425,6 +425,10 @@
     </div>
   </div>
 
+  <button class="sheet-summary" id="resultsSummary" type="button" hidden>
+    <span id="resultsSummaryText">Resultados</span>
+    <span class="sheet-chevron" id="resultsChevron">▴</span>
+  </button>
   <div id="resultsArea"></div>
   <button class="search-btn" id="searchBtn" type="button" disabled>Buscar viaje</button>
 </div>
@@ -621,20 +625,39 @@
       '&destination=' + state.dest.lat + ',' + state.dest.lon + '&travelmode=transit';
   }
 
+  function setResultsCollapsed(collapsed) {
+    document.getElementById('resultsArea').hidden = collapsed;
+    document.getElementById('resultsChevron').textContent = collapsed ? '▾' : '▴';
+  }
+  document.getElementById('resultsSummary').addEventListener('click', function() {
+    setResultsCollapsed(!document.getElementById('resultsArea').hidden);
+  });
+  function showResultsSummary(text) {
+    document.getElementById('resultsSummaryText').textContent = text;
+    document.getElementById('resultsSummary').hidden = false;
+    setResultsCollapsed(false);
+  }
+  function hideResultsSummary() {
+    document.getElementById('resultsSummary').hidden = true;
+  }
+
   function renderResults(data) {
     var el = document.getElementById('resultsArea');
     var mapsLink = '<div class="btn-row"><a class="btn btn-outline btn-full" style="text-align:center;text-decoration:none;" href="' + mapsDirUrl() + '" target="_blank" rel="noopener">Ver ruta completa en Google Maps</a></div>';
     if (data.direct && data.direct.length) {
-      el.innerHTML = '<div class="section-title">Mejores opciones · tocá una para ver el recorrido</div><div class="transit-result">' + candidatesHtml(data.direct) + '</div>' + mapsLink;
+      showResultsSummary('Mejores opciones (' + data.direct.length + ') · tocá una para ver el recorrido');
+      el.innerHTML = '<div class="transit-result">' + candidatesHtml(data.direct) + '</div>' + mapsLink;
       drawCandidateRoute(data.direct[0].shapeId, null);
       return;
     }
     if (data.transfer && data.transfer.length) {
-      el.innerHTML = '<div class="section-title">Combinaciones con transbordo · tocá una para ver el recorrido</div><div class="transit-result">' + twoLegCandidatesHtml(data.transfer) + '</div>' + mapsLink;
+      showResultsSummary('Combinaciones con transbordo (' + data.transfer.length + ') · tocá una para ver el recorrido');
+      el.innerHTML = '<div class="transit-result">' + twoLegCandidatesHtml(data.transfer) + '</div>' + mapsLink;
       drawCandidateRoute(data.transfer[0].leg1ShapeId, data.transfer[0].leg2ShapeId);
       return;
     }
     clearRouteLines();
+    showResultsSummary('Paradas cercanas');
     var fb = data.fallback || {};
     var html = '<div class="section-title">Cerca de donde salís</div>' +
       '<div class="card">' + (fb.originStop ? stopLocationHtml(fb.originStop) + arrivalsHtml(fb.originArrivals || []) : '<p style="font-size:13px;color:var(--muted);">No se encontraron paradas cercanas.</p>') + '</div>' +
@@ -1023,6 +1046,8 @@
     btn.disabled = true;
     btn.textContent = 'Buscando...';
     var el = document.getElementById('resultsArea');
+    hideResultsSummary();
+    setResultsCollapsed(false);
     el.innerHTML = '<p class="transit-loading">Buscando las mejores opciones...</p>';
     fetchRoute(state.origin.lat, state.origin.lon, state.dest.lat, state.dest.lon)
       .then(function(data) {
@@ -1030,6 +1055,7 @@
       })
       .catch(function(err) {
         clearRouteLines();
+        hideResultsSummary();
         el.innerHTML = '<p class="transit-loading">No pudimos calcular la ruta (' + escapeHtml(err.message) + ').</p>';
       })
       .then(function() {
