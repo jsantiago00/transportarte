@@ -263,19 +263,32 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    gap: 10px;
     width: 100%;
-    background: none;
+    background: var(--surface-2);
     border: none;
-    padding: 6px 2px;
+    border-radius: 12px;
+    padding: 12px 14px;
     font-size: 13.5px;
     font-weight: 700;
     color: var(--text);
     cursor: pointer;
     flex-shrink: 0;
+    margin-bottom: 8px;
   }
   .sheet-summary span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .sheet-chevron { color: var(--muted); font-size: 11px; flex-shrink: 0; }
+  .sheet-chevron {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--primary);
+    font-size: 11.5px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    flex-shrink: 0;
+  }
+  .sheet-chevron .arrow { font-size: 15px; line-height: 1; }
   #sheetBody { flex-shrink: 0; padding-bottom: 4px; }
 
   .search-btn {
@@ -394,7 +407,7 @@
 <div class="bottom-card" id="bottomCard">
   <button class="sheet-summary" id="sheetSummary" type="button">
     <span id="sheetSummaryText">Elegí tu origen y destino</span>
-    <span class="sheet-chevron" id="sheetChevron">▴</span>
+    <span class="sheet-chevron" id="sheetChevron">Minimizar <span class="arrow">▴</span></span>
   </button>
   <div id="sheetBody">
     <button class="point-chip" id="originChip" type="button">
@@ -427,7 +440,7 @@
 
   <button class="sheet-summary" id="resultsSummary" type="button" hidden>
     <span id="resultsSummaryText">Resultados</span>
-    <span class="sheet-chevron" id="resultsChevron">▴</span>
+    <span class="sheet-chevron" id="resultsChevron">Minimizar <span class="arrow">▴</span></span>
   </button>
   <div id="resultsArea"></div>
   <button class="search-btn" id="searchBtn" type="button" disabled>Buscar viaje</button>
@@ -625,9 +638,13 @@
       '&destination=' + state.dest.lat + ',' + state.dest.lon + '&travelmode=transit';
   }
 
+  function chevronHtml(collapsed) {
+    return collapsed ? 'Ver más <span class="arrow">▾</span>' : 'Minimizar <span class="arrow">▴</span>';
+  }
+
   function setResultsCollapsed(collapsed) {
     document.getElementById('resultsArea').hidden = collapsed;
-    document.getElementById('resultsChevron').textContent = collapsed ? '▾' : '▴';
+    document.getElementById('resultsChevron').innerHTML = chevronHtml(collapsed);
   }
   document.getElementById('resultsSummary').addEventListener('click', function() {
     setResultsCollapsed(!document.getElementById('resultsArea').hidden);
@@ -799,13 +816,29 @@
     }).catch(function() { /* sin recorrido disponible para este tramo */ });
   }
 
+  // Ruta peatonal real (siguiendo calles) vía OSRM, que ofrece un perfil "foot"
+  // público y sin API key. Si falla (sin señal, fuera de cobertura), cae a una
+  // línea recta entre los dos puntos para no dejar el tramo sin dibujar.
+  function fetchWalkRoute(from, to) {
+    var url = 'https://router.project-osrm.org/route/v1/foot/' + from.lon + ',' + from.lat + ';' + to.lon + ',' + to.lat + '?overview=full&geometries=geojson';
+    return fetch(url).then(function(res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    }).then(function(body) {
+      if (body.code !== 'Ok' || !body.routes || !body.routes.length) throw new Error('sin ruta a pie');
+      return body.routes[0].geometry.coordinates.map(function(p) { return [p[1], p[0]]; });
+    });
+  }
+
   // Línea punteada para los tramos a pie: origen -> parada de subida,
   // caminata de transbordo, y parada de bajada -> destino real.
   function drawWalkLine(from, to, boundsPoints) {
-    if (!from || !to || from.lat == null || to.lat == null) return;
-    var pts = [[from.lat, from.lon], [to.lat, to.lon]];
-    addRouteLayer(L.polyline(pts, { color: '#b7791f', weight: 3.5, opacity: 0.9, dashArray: '1, 11', lineCap: 'round' }));
-    boundsPoints.push.apply(boundsPoints, pts);
+    if (!from || !to || from.lat == null || to.lat == null) return Promise.resolve();
+    var straight = [[from.lat, from.lon], [to.lat, to.lon]];
+    return fetchWalkRoute(from, to).catch(function() { return straight; }).then(function(coords) {
+      addRouteLayer(L.polyline(coords, { color: '#b7791f', weight: 3.5, opacity: 0.9, dashArray: '1, 11', lineCap: 'round' }));
+      boundsPoints.push.apply(boundsPoints, coords);
+    });
   }
 
   function drawStopMarker(stop, color, label, boundsPoints) {
@@ -822,34 +855,34 @@
   function drawDirectRoute(c) {
     clearRouteLines();
     var bounds = [];
-    drawBusShape(c.shapeId, bounds).then(function() {
-      drawStopMarker(c.originStop, '#2f7dd6', 'S', bounds);
-      drawStopMarker(c.destStop, '#123f7a', 'B', bounds);
-      drawWalkLine(state.origin, c.originStop, bounds);
-      drawWalkLine(c.destStop, state.dest, bounds);
-      finishRouteDraw(bounds);
-    });
+    drawStopMarker(c.originStop, '#2f7dd6', 'S', bounds);
+    drawStopMarker(c.destStop, '#123f7a', 'B', bounds);
+    var tasks = [
+      drawBusShape(c.shapeId, bounds),
+      drawWalkLine(state.origin, c.originStop, bounds),
+      drawWalkLine(c.destStop, state.dest, bounds)
+    ];
+    Promise.all(tasks).then(function() { finishRouteDraw(bounds); });
   }
 
   function drawTransferRoute(c) {
     clearRouteLines();
     var bounds = [];
-    Promise.all([drawBusShape(c.leg1ShapeId, bounds), drawBusShape(c.leg2ShapeId, bounds)]).then(function() {
-      drawStopMarker(c.originStop, '#2f7dd6', 'S', bounds);
-      if (c.boardStop) {
-        // Bajás de la primera línea y caminás hasta otra parada para la segunda.
-        drawStopMarker(c.transferStop, '#123f7a', 'B', bounds);
-        drawStopMarker(c.boardStop, '#2f7dd6', 'S', bounds);
-        drawWalkLine(c.transferStop, c.boardStop, bounds);
-      } else {
-        // El transbordo es en la misma parada: un solo pin para bajar y subir.
-        drawStopMarker(c.transferStop, '#6b4fa0', '⇄', bounds);
-      }
-      drawStopMarker(c.destStop, '#123f7a', 'B', bounds);
-      drawWalkLine(state.origin, c.originStop, bounds);
-      drawWalkLine(c.destStop, state.dest, bounds);
-      finishRouteDraw(bounds);
-    });
+    var tasks = [drawBusShape(c.leg1ShapeId, bounds), drawBusShape(c.leg2ShapeId, bounds)];
+    drawStopMarker(c.originStop, '#2f7dd6', 'S', bounds);
+    if (c.boardStop) {
+      // Bajás de la primera línea y caminás hasta otra parada para la segunda.
+      drawStopMarker(c.transferStop, '#123f7a', 'B', bounds);
+      drawStopMarker(c.boardStop, '#2f7dd6', 'S', bounds);
+      tasks.push(drawWalkLine(c.transferStop, c.boardStop, bounds));
+    } else {
+      // El transbordo es en la misma parada: un solo pin para bajar y subir.
+      drawStopMarker(c.transferStop, '#6b4fa0', '⇄', bounds);
+    }
+    drawStopMarker(c.destStop, '#123f7a', 'B', bounds);
+    tasks.push(drawWalkLine(state.origin, c.originStop, bounds));
+    tasks.push(drawWalkLine(c.destStop, state.dest, bounds));
+    Promise.all(tasks).then(function() { finishRouteDraw(bounds); });
   }
 
   document.getElementById('resultsArea').addEventListener('click', function(e) {
@@ -885,7 +918,7 @@
   // ---------- Panel inferior: minimizar/expandir el selector de origen/destino ----------
   function setSheetCollapsed(collapsed) {
     document.getElementById('sheetBody').hidden = collapsed;
-    document.getElementById('sheetChevron').textContent = collapsed ? '▾' : '▴';
+    document.getElementById('sheetChevron').innerHTML = chevronHtml(collapsed);
   }
   document.getElementById('sheetSummary').addEventListener('click', function() {
     setSheetCollapsed(!document.getElementById('sheetBody').hidden);

@@ -112,23 +112,32 @@ function haversine(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// En zonas densas puede haber muchas más de 8-10 paradas dentro del radio de
+// caminata (verificado: 19 a menos de 700m en un caso real), y la línea que
+// buscamos puede no ser la que tiene la parada más cercana de TODAS - sólo la
+// más cercana entre las que sirven esa línea. Por eso, si hay paradas dentro
+// del radio, las usamos prácticamente todas (hasta este tope de seguridad)
+// en vez de cortar a un top-N general que mezcla paradas de otras líneas.
+const MAX_NEARBY_STOPS = 15;
+
 // Devuelve las paradas más cercanas a (lat, lon), cada una con walkMeters: la distancia
 // a pie hasta ese punto. Si maxMeters está definido, prioriza las que caen dentro de ese
 // radio (para poder ofrecer "caminá hasta acá"); si ninguna entra, no descarta todo el
 // resultado, sino que sigue con las más cercanas igual, aunque estén más lejos.
-function findNearestStops(lat, lon, limit, maxMeters) {
+function findNearestStops(lat, lon, fallbackLimit, maxMeters) {
   return fetchOBA("stops-for-location.json", { lat, lon, latSpan: 0.02, lonSpan: 0.02 })
     .then((data) => {
       const list = data.list || data.stops || [];
       if (!list.length) throw new Error("Sin paradas cercanas");
-      let withDist = list
+      const withDist = list
         .map((s) => ({ stop: s, meters: haversine(lat, lon, s.lat, s.lon) * 1000 }))
         .sort((a, b) => a.meters - b.meters);
+      const toStop = (x) => Object.assign({}, x.stop, { walkMeters: Math.round(x.meters) });
       if (maxMeters) {
         const within = withDist.filter((x) => x.meters <= maxMeters);
-        if (within.length) withDist = within;
+        if (within.length) return within.slice(0, MAX_NEARBY_STOPS).map(toStop);
       }
-      return withDist.slice(0, limit || 5).map((x) => Object.assign({}, x.stop, { walkMeters: Math.round(x.meters) }));
+      return withDist.slice(0, fallbackLimit || 5).map(toStop);
     });
 }
 
