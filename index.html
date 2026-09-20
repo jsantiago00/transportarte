@@ -335,6 +335,19 @@
     0% { box-shadow: 0 0 0 4px rgba(47,125,214,0.35), 0 2px 8px rgba(0,0,0,0.35); }
     100% { box-shadow: 0 0 0 12px rgba(47,125,214,0), 0 2px 8px rgba(0,0,0,0.35); }
   }
+
+  .stop-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 3px solid var(--primary);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+  }
+  .stop-popup { font-size: 12.5px; min-width: 180px; }
+  .stop-popup .stop-popup-title { font-weight: 700; font-size: 13px; margin: 0 0 6px; }
+  .stop-popup .arrival { padding: 8px 9px; }
+  .leaflet-popup-content { margin: 10px 12px; }
 </style>
 </head>
 <body>
@@ -643,6 +656,73 @@
   var leafletMap = L.map('mapContainer', { zoomControl: false }).setView([-32.89, -68.84], 13);
   L.tileLayer(TILE_URL, { maxZoom: 19, attribution: TILE_ATTRIBUTION }).addTo(leafletMap);
   L.control.zoom({ position: 'bottomright' }).addTo(leafletMap);
+
+  // ---------- Paradas visibles en el mapa: tocar una muestra sus próximos colectivos ----------
+  // Igual que la app oficial: sólo a partir de cierto zoom (si no, serían
+  // cientos de puntos), y se recarga (con demora) cada vez que movés o
+  // acercás el mapa.
+  var STOP_PIN_MIN_ZOOM = 15;
+  var stopMarkersLayer = L.layerGroup().addTo(leafletMap);
+  var stopMarkersById = {};
+  var stopRefreshTimer = null;
+
+  function stopIcon() {
+    return L.divIcon({ className: 'stop-dot', html: '', iconSize: [12, 12], iconAnchor: [6, 6] });
+  }
+
+  function fetchStopArrivals(stopId) {
+    var url = API_BASE + 'arrivals-and-departures-for-stop/' + encodeURIComponent(stopId) + '.json?platform=web&v=&minutesBefore=0&minutesAfter=65&version=1.0';
+    return fetch(url).then(function(res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    }).then(function(body) {
+      if (body.code !== 200) throw new Error(body.text || ('código ' + body.code));
+      return (body.data && body.data.entry && body.data.entry.arrivalsAndDepartures) || [];
+    });
+  }
+
+  function openStopPopup(stop, marker) {
+    marker.setPopupContent('<div class="stop-popup"><p class="stop-popup-title">' + escapeHtml(stop.address || stop.name) + '</p><p style="color:var(--muted);">Buscando llegadas...</p></div>');
+    fetchStopArrivals(stop.id).then(function(arrivals) {
+      marker.setPopupContent('<div class="stop-popup"><p class="stop-popup-title">' + escapeHtml(stop.address || stop.name) + '</p>' + arrivalsHtml(arrivals) + '</div>');
+    }).catch(function() {
+      marker.setPopupContent('<div class="stop-popup"><p class="stop-popup-title">' + escapeHtml(stop.address || stop.name) + '</p><p style="color:var(--muted);">No pudimos cargar las llegadas.</p></div>');
+    });
+  }
+
+  function refreshVisibleStops() {
+    if (leafletMap.getZoom() < STOP_PIN_MIN_ZOOM) { stopMarkersLayer.clearLayers(); stopMarkersById = {}; return; }
+    var b = leafletMap.getBounds();
+    var lat = (b.getNorth() + b.getSouth()) / 2;
+    var lon = (b.getEast() + b.getWest()) / 2;
+    var latSpan = Math.min(0.02, (b.getNorth() - b.getSouth()) * 1.2);
+    var lonSpan = Math.min(0.02, (b.getEast() - b.getWest()) * 1.2);
+    var url = API_BASE + 'stops-for-location.json?lat=' + lat + '&lon=' + lon + '&latSpan=' + latSpan + '&lonSpan=' + lonSpan;
+    fetch(url).then(function(res) { return res.json(); }).then(function(body) {
+      if (body.code !== 200) return;
+      var list = (body.data && (body.data.list || body.data.stops)) || [];
+      var seenIds = {};
+      list.forEach(function(stop) {
+        seenIds[stop.id] = true;
+        if (stopMarkersById[stop.id]) return;
+        var marker = L.marker([stop.lat, stop.lon], { icon: stopIcon() });
+        marker.bindPopup('', { maxWidth: 240 });
+        marker.on('click', function() { openStopPopup(stop, marker); });
+        marker.addTo(stopMarkersLayer);
+        stopMarkersById[stop.id] = marker;
+      });
+      Object.keys(stopMarkersById).forEach(function(id) {
+        if (seenIds[id]) return;
+        stopMarkersLayer.removeLayer(stopMarkersById[id]);
+        delete stopMarkersById[id];
+      });
+    }).catch(function() { /* si falla, dejamos los pines que ya había */ });
+  }
+
+  leafletMap.on('moveend zoomend', function() {
+    clearTimeout(stopRefreshTimer);
+    stopRefreshTimer = setTimeout(refreshVisibleStops, 350);
+  });
 
   var originMarker = null;
   var destMarker = null;
