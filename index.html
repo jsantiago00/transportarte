@@ -64,12 +64,6 @@
   input, select, textarea { font-family: inherit; font-size: 16px; }
 
   #mapContainer { position: fixed; inset: 0; z-index: 0; background: var(--surface-2); }
-  @media (prefers-color-scheme: dark) {
-    /* Esri no ofrece un basemap oscuro gratis sin API key: invertimos el mosaico
-       de calles con un filtro CSS y dejamos los pines/el punto de ubicación
-       intactos, ya que el filtro sólo se aplica al panel de tiles. */
-    #mapContainer .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.95) saturate(0.85); }
-  }
 
   .map-ui-top {
     position: fixed;
@@ -583,12 +577,17 @@
   // ---------- Mapa persistente (Leaflet + tiles de Esri, sin API key) ----------
   // El basemap "bonito" anterior (CARTO Voyager/Dark Matter) dejó de ofrecer tiles
   // anónimas gratis y ahora devuelve un watermark de "API KEY REQUIRED" en su lugar.
-  // Esri World Street Map sigue siendo gratuito sin registrarse, así que lo usamos
-  // para ambos esquemas de color; en modo oscuro se invierte con un filtro CSS
-  // (ver #mapContainer .leaflet-tile-pane) en vez de pedir un tile set distinto.
-  var TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
-  var TILE_ATTRIBUTION = 'Tiles &copy; <a href="https://www.esri.com">Esri</a> — Esri, HERE, Garmin, USGS, Intermap, NRCan, ' +
-    'Esri Japan, METI, Esri China (Hong Kong), Esri Korea, Esri (Thailand), NGCC, &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+  // El basemap "Canvas" gris minimalista de Esri sigue siendo gratuito sin
+  // registrarse y tiene una variante oscura real (no un filtro CSS inventado).
+  // Ojo: su detalle nativo llega hasta zoom 16; más cerca, Leaflet agranda esa
+  // última tile (maxNativeZoom) en vez de pedir una que no existe.
+  var TILE_ATTRIBUTION = 'Tiles &copy; <a href="https://www.esri.com">Esri</a> — Esri, HERE, Garmin, ' +
+    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, GIS User Community';
+  function tileUrl() {
+    var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var style = dark ? 'World_Dark_Gray_Base' : 'World_Light_Gray_Base';
+    return 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/' + style + '/MapServer/tile/{z}/{y}/{x}';
+  }
 
   function pinIcon(color) {
     return L.divIcon({
@@ -601,7 +600,7 @@
   }
 
   var leafletMap = L.map('mapContainer', { zoomControl: false }).setView([-32.89, -68.84], 13);
-  L.tileLayer(TILE_URL, { maxZoom: 19, attribution: TILE_ATTRIBUTION }).addTo(leafletMap);
+  L.tileLayer(tileUrl(), { maxZoom: 19, maxNativeZoom: 16, attribution: TILE_ATTRIBUTION }).addTo(leafletMap);
   L.control.zoom({ position: 'bottomright' }).addTo(leafletMap);
 
   var originMarker = null;
