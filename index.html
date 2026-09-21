@@ -25,7 +25,8 @@
     --primary: #2f7dd6;
     --primary-dark: #1f5fac;
     --success: #1f9d55;
-    --success-bg: #e5f7ea;
+    --success-bg: #d3f2dc;
+    --success-bg-soft: #f1fbf3;
     --warning: #b7791f;
     --warning-bg: #fdf3dd;
     --danger: #d92d20;
@@ -44,7 +45,8 @@
     --primary: #5b9be8;
     --primary-dark: #3f7dd0;
     --success: #34c471;
-    --success-bg: #113322;
+    --success-bg: #1a4530;
+    --success-bg-soft: #0f2519;
     --warning: #e0ac48;
     --warning-bg: #3a2c0c;
     --danger: #f16a5e;
@@ -61,7 +63,8 @@
       --primary: #5b9be8;
       --primary-dark: #3f7dd0;
       --success: #34c471;
-      --success-bg: #113322;
+      --success-bg: #1a4530;
+      --success-bg-soft: #0f2519;
       --warning: #e0ac48;
       --warning-bg: #3a2c0c;
       --danger: #f16a5e;
@@ -84,17 +87,6 @@
   input, select, textarea { font-family: inherit; font-size: 16px; }
 
   #mapContainer { position: fixed; inset: 0; z-index: 0; background: var(--surface-2); }
-  /* El basemap con calles (Esri World Street Map, sin API key) no tiene una
-     variante oscura gratis: en modo oscuro invertimos sus colores con un
-     filtro CSS en vez de pedir tiles que no existen. */
-  :root[data-theme="dark"] #mapContainer .leaflet-tile-pane {
-    filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.95) saturate(0.85);
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) #mapContainer .leaflet-tile-pane {
-      filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.95) saturate(0.85);
-    }
-  }
 
   .brand-tiny {
     position: fixed;
@@ -136,6 +128,29 @@
 
   .field { position: relative; margin-bottom: 10px; }
   .field label { display: block; font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 4px; }
+  .field-label-row { display: flex; justify-content: space-between; align-items: center; }
+  .field-label-row label { margin-bottom: 0; }
+  .save-place-btn {
+    background: none;
+    border: none;
+    color: var(--primary);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0 0 4px;
+  }
+  .saved-place-row { display: flex; align-items: stretch; }
+  .saved-place-row + .saved-place-row { border-top: 1px solid var(--border); }
+  .saved-place-row .saved-place-pick { flex: 1; width: auto; border: none; }
+  .saved-place-row .saved-place-del {
+    flex-shrink: 0;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    padding: 0 12px;
+    cursor: pointer;
+    font-size: 13px;
+  }
   .field input[type=text] {
     width: 100%;
     padding: 10px 11px;
@@ -290,8 +305,8 @@
     background: var(--surface-2);
     cursor: pointer;
   }
-  .arrival.convenient { background: var(--success-bg); }
-  .arrival.recommended { box-shadow: 0 0 0 2px var(--success); }
+  .arrival.recommended { background: var(--success-bg); }
+  .arrival.also-good { background: var(--success-bg-soft); }
   .recommended-badge {
     display: inline-block;
     background: var(--success);
@@ -398,14 +413,20 @@
   </button>
   <div id="sheetBody">
     <div class="field">
-      <label>Origen</label>
+      <div class="field-label-row">
+        <label>Origen</label>
+        <button class="save-place-btn" id="saveOriginBtn" type="button" hidden>💾 Guardar</button>
+      </div>
       <input type="text" id="originSearch" placeholder="Buscá una dirección, o tocá el mapa" autocomplete="off">
       <div class="suggest-list" id="originSuggest" hidden></div>
     </div>
     <button class="locate-btn" id="useMyLocation" type="button">📍 Mi ubicación actual</button>
 
     <div class="field">
-      <label>Destino</label>
+      <div class="field-label-row">
+        <label>Destino</label>
+        <button class="save-place-btn" id="saveDestBtn" type="button" hidden>💾 Guardar</button>
+      </div>
       <input type="text" id="destSearch" placeholder="Buscá una dirección, o tocá el mapa" autocomplete="off">
       <div class="suggest-list" id="destSuggest" hidden></div>
     </div>
@@ -432,8 +453,25 @@
   var API_BASE = 'https://api.santiagososa.com.ar/';
   var STORAGE_KEY = 'transportarte_last_v1';
   var THEME_KEY = 'transportarte_theme_v1';
+  var PLACES_KEY = 'transportarte_places_v1';
 
   var state = { origin: null, dest: null };
+
+  // ---------- Lugares guardados (localStorage, sólo en este dispositivo) ----------
+  function getSavedPlaces() {
+    try { return JSON.parse(localStorage.getItem(PLACES_KEY)) || []; } catch (e) { return []; }
+  }
+  function setSavedPlaces(list) {
+    try { localStorage.setItem(PLACES_KEY, JSON.stringify(list)); } catch (e) {}
+  }
+  function savePlace(name, coords) {
+    var list = getSavedPlaces().filter(function(p) { return p.name !== name; });
+    list.push({ name: name, lat: coords.lat, lon: coords.lon });
+    setSavedPlaces(list);
+  }
+  function removePlace(name) {
+    setSavedPlaces(getSavedPlaces().filter(function(p) { return p.name !== name; }));
+  }
 
   function pad(n) { return String(n).padStart(2, '0'); }
   function fmtClockTime(ms) {
@@ -463,6 +501,10 @@
     if (theme) document.documentElement.setAttribute('data-theme', theme);
     else document.documentElement.removeAttribute('data-theme');
     document.getElementById('themeToggleBtn').textContent = currentEffectiveDark() ? '☀️' : '🌙';
+    // El mapa todavía no existe la primera vez que esto corre (initTheme se
+    // llama antes de crear el mapa) - refreshTileLayer ya se encarga de
+    // poner la capa correcta la primera vez.
+    if (leafletMap) refreshTileLayer();
   }
   document.getElementById('themeToggleBtn').addEventListener('click', function() {
     var next = currentEffectiveDark() ? 'light' : 'dark';
@@ -556,7 +598,7 @@
     return candidates.map(function(c, i) {
       var mins = Math.round((c.originTime - now) / 60000);
       var hasDestWalk = c.destWalkMeters >= 30;
-      return '<div class="arrival convenient' + (i === 0 ? ' recommended' : '') + '" data-idx="' + i + '">' +
+      return '<div class="arrival ' + (i === 0 ? 'recommended' : 'also-good') + '" data-idx="' + i + '">' +
         '<div class="journey-head"><span class="step-route">' + escapeHtml(c.route + ' · ' + c.headsign) + (i === 0 ? recommendedBadge() : '') + '</span><span class="journey-when">' + whenLabel(mins) + '</span></div>' +
         fasterAlternativeNote(c) +
         originWalkStep(c) +
@@ -577,7 +619,7 @@
       if (c.walkMeters > 0 && c.boardStop) {
         transferWalkStep = journeyStep('Caminás', 'walk', '', { label: c.boardStop.address || c.boardStop.name, stop: c.boardStop }, '~' + c.walkMeters + ' m (unos ' + walkMins(c.walkMeters) + ' min)');
       }
-      return '<div class="arrival convenient' + (i === 0 ? ' recommended' : '') + '" data-idx="' + i + '">' +
+      return '<div class="arrival ' + (i === 0 ? 'recommended' : 'also-good') + '" data-idx="' + i + '">' +
         '<div class="journey-head"><span class="step-route">' + escapeHtml(c.leg1Route) + ' · con transbordo' + (i === 0 ? recommendedBadge() : '') + '</span><span class="journey-when">' + whenLabel(mins) + '</span></div>' +
         fasterAlternativeNote(c) +
         originWalkStep(c) +
@@ -616,6 +658,10 @@
     handleEl.addEventListener('pointerdown', function(e) { startY = e.clientY; });
     handleEl.addEventListener('pointerup', function(e) {
       if (startY == null) return;
+      // Si no frenamos el "click" fantasma que el navegador dispara después
+      // del toque, cae sobre el campo que recién quedó al descubierto (al
+      // expandir) y lo abre para editar en vez de sólo desplegar el panel.
+      e.preventDefault();
       var deltaY = e.clientY - startY;
       startY = null;
       if (Math.abs(deltaY) < 12) { setCollapsedFn(!isCollapsedFn()); return; }
@@ -703,13 +749,18 @@
   }
 
   // ---------- Mapa persistente (Leaflet + tiles de Esri, sin API key) ----------
-  // Usamos World Street Map: a diferencia del basemap "Canvas" minimalista que
-  // probamos antes, éste sí trae nombres de calles secundarias, no sólo las
-  // principales. No tiene variante oscura gratis, así que el modo oscuro se
-  // logra invirtiendo sus colores con CSS (ver la regla de .leaflet-tile-pane).
-  var TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
+  // En modo claro usamos World Street Map (trae calles secundarias, no sólo
+  // las principales). Esri no tiene una variante oscura de ese mismo estilo
+  // gratis, así que en modo oscuro usamos su basemap "Canvas" gris oscuro
+  // (real, no un filtro CSS inventado) - pierde algo de detalle de calles
+  // menores, pero se ve mucho mejor que invertir los colores del claro.
   var TILE_ATTRIBUTION = 'Tiles &copy; <a href="https://www.esri.com">Esri</a> — Esri, HERE, Garmin, USGS, Intermap, ' +
     '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, GIS User Community';
+  function tileUrlForTheme() {
+    return currentEffectiveDark()
+      ? 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}'
+      : 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
+  }
 
   function pinIcon(color) {
     return L.divIcon({
@@ -722,7 +773,18 @@
   }
 
   var leafletMap = L.map('mapContainer', { zoomControl: false }).setView([-32.89, -68.84], 13);
-  L.tileLayer(TILE_URL, { maxZoom: 19, attribution: TILE_ATTRIBUTION }).addTo(leafletMap);
+  var currentTileLayer = null;
+  function refreshTileLayer() {
+    if (currentTileLayer) leafletMap.removeLayer(currentTileLayer);
+    var dark = currentEffectiveDark();
+    currentTileLayer = L.tileLayer(tileUrlForTheme(), {
+      maxZoom: 19,
+      maxNativeZoom: dark ? 16 : 19,
+      attribution: TILE_ATTRIBUTION
+    }).addTo(leafletMap);
+    currentTileLayer.bringToBack();
+  }
+  refreshTileLayer();
   L.control.zoom({ position: 'bottomright' }).addTo(leafletMap);
 
   // ---------- Paradas visibles en el mapa: tocar una muestra sus próximos colectivos ----------
@@ -889,6 +951,38 @@
     });
   }
 
+  // Cuando un colectivo va y vuelve por la misma calle, las dos pasadas caen
+  // exactamente una sobre la otra. Para separarlas un poco (como los carriles
+  // de una avenida), corremos cada punto del recorrido levemente hacia la
+  // derecha de su propio sentido de avance - así el tramo de ida y el de
+  // vuelta, que van en sentidos opuestos, quedan a lados opuestos de la calle
+  // en vez de superpuestos. El corrimiento es chico a propósito: casi no se
+  // nota alejado, pero separa las líneas al acercar el zoom.
+  var ROUTE_OFFSET_METERS = 5;
+  function bearingDeg(lat1, lon1, lat2, lon2) {
+    var toRad = function(d) { return d * Math.PI / 180; };
+    var y = Math.sin(toRad(lon2 - lon1)) * Math.cos(toRad(lat2));
+    var x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(toRad(lon2 - lon1));
+    return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+  }
+  function pointAtBearing(lat, lon, brngDeg, distanceM) {
+    var R = 6371000;
+    var brng = brngDeg * Math.PI / 180;
+    var lat1 = lat * Math.PI / 180, lon1 = lon * Math.PI / 180;
+    var lat2 = Math.asin(Math.sin(lat1) * Math.cos(distanceM / R) + Math.cos(lat1) * Math.sin(distanceM / R) * Math.cos(brng));
+    var lon2 = lon1 + Math.atan2(Math.sin(brng) * Math.sin(distanceM / R) * Math.cos(lat1), Math.cos(distanceM / R) - Math.sin(lat1) * Math.sin(lat2));
+    return [lat2 * 180 / Math.PI, lon2 * 180 / Math.PI];
+  }
+  function offsetRoutePoints(coords) {
+    if (coords.length < 2) return coords;
+    return coords.map(function(pt, i) {
+      var prev = coords[Math.max(0, i - 1)];
+      var next = coords[Math.min(coords.length - 1, i + 1)];
+      var brng = bearingDeg(prev[0], prev[1], next[0], next[1]);
+      return pointAtBearing(pt[0], pt[1], (brng + 90) % 360, ROUTE_OFFSET_METERS);
+    });
+  }
+
   // Dibuja el recorrido real de un colectivo (con flechitas de sentido, ya
   // que las líneas se cruzan y sin eso no se distingue para dónde va) y junta
   // sus puntos en boundsPoints para poder encuadrar el mapa después.
@@ -896,6 +990,7 @@
     if (!shapeId) return Promise.resolve();
     return fetchShapePoints(shapeId).then(function(coords) {
       if (!coords || !coords.length) return;
+      coords = offsetRoutePoints(coords);
       var line = addRouteLayer(L.polyline(coords, { color: '#2f7dd6', weight: 5, opacity: 0.85 }));
       addRouteLayer(L.polylineDecorator(line, {
         patterns: [{
@@ -946,6 +1041,7 @@
     if (!shapeId) return Promise.resolve();
     return fetchShapePoints(shapeId).then(function(coords) {
       if (!coords || !coords.length) return;
+      coords = offsetRoutePoints(coords);
       addRouteLayer(L.polyline(coords, { color: '#2f7dd6', weight: 4, opacity: 0.25 }));
       boundsPoints.push.apply(boundsPoints, coords);
     }).catch(function() { /* sin recorrido disponible para este tramo */ });
@@ -1056,10 +1152,12 @@
       state.origin = null;
       if (originMarker) { leafletMap.removeLayer(originMarker); originMarker = null; }
       setFieldValue('origin', '');
+      document.getElementById('saveOriginBtn').hidden = true;
     } else {
       state.dest = null;
       if (destMarker) { leafletMap.removeLayer(destMarker); destMarker = null; }
       setFieldValue('dest', '');
+      document.getElementById('saveDestBtn').hidden = true;
     }
     updateSearchEnabled();
     clearRouteLines();
@@ -1123,6 +1221,7 @@
     setFieldValue('origin', label || defaultCoordLabel(coords));
     placeMarker('origin', coords);
     updateSearchEnabled();
+    document.getElementById('saveOriginBtn').hidden = false;
     onPointSet('origin');
   }
   function setDest(coords, label) {
@@ -1130,6 +1229,7 @@
     setFieldValue('dest', label || defaultCoordLabel(coords));
     placeMarker('dest', coords);
     updateSearchEnabled();
+    document.getElementById('saveDestBtn').hidden = false;
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ lat: coords.lat, lon: coords.lon })); } catch (e) {}
     onPointSet('dest');
   }
@@ -1160,7 +1260,7 @@
     btn.disabled = true;
     btn.textContent = 'Ubicándote...';
     getCurrentPosition().then(function(pos) {
-      setOrigin(pos, 'Tu ubicación (' + pos.lat.toFixed(5) + ', ' + pos.lon.toFixed(5) + ')');
+      setOrigin(pos, 'Tu ubicación');
     }).catch(function(err) {
       toast('No pudimos usar tu ubicación (' + err.message + ').');
     }).then(function() {
@@ -1169,16 +1269,53 @@
     });
   });
 
+  // Lista de lugares guardados dentro del mismo desplegable de sugerencias -
+  // se muestra al tocar un campo vacío, antes de escribir nada.
+  function renderSavedPlaces(suggestBox, onPick) {
+    var places = getSavedPlaces();
+    if (!places.length) { suggestBox.hidden = true; suggestBox.innerHTML = ''; return; }
+    suggestBox.hidden = false;
+    suggestBox.innerHTML = places.map(function(p, i) {
+      return '<div class="saved-place-row">' +
+        '<button type="button" class="saved-place-pick" data-i="' + i + '">📍 ' + escapeHtml(p.name) + '</button>' +
+        '<button type="button" class="saved-place-del" data-i="' + i + '" aria-label="Borrar">✕</button>' +
+      '</div>';
+    }).join('');
+    Array.prototype.forEach.call(suggestBox.querySelectorAll('.saved-place-pick'), function(btn) {
+      btn.addEventListener('click', function() {
+        var p = places[parseInt(btn.getAttribute('data-i'), 10)];
+        suggestBox.hidden = true;
+        onPick({ lat: p.lat, lon: p.lon }, p.name);
+      });
+    });
+    Array.prototype.forEach.call(suggestBox.querySelectorAll('.saved-place-del'), function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var p = places[parseInt(btn.getAttribute('data-i'), 10)];
+        removePlace(p.name);
+        renderSavedPlaces(suggestBox, onPick);
+      });
+    });
+  }
+
   function setupAddressSearch(inputId, suggestId, onPick) {
     var input = document.getElementById(inputId);
     var suggestBox = document.getElementById(suggestId);
     var timer = null;
     var requestId = 0;
 
+    input.addEventListener('focus', function() {
+      if (!input.value.trim()) renderSavedPlaces(suggestBox, onPick);
+    });
+
     input.addEventListener('input', function() {
       var q = input.value.trim();
       if (timer) clearTimeout(timer);
-      if (q.length < 3) { suggestBox.hidden = true; suggestBox.innerHTML = ''; return; }
+      if (q.length < 3) {
+        if (!q) renderSavedPlaces(suggestBox, onPick);
+        else { suggestBox.hidden = true; suggestBox.innerHTML = ''; }
+        return;
+      }
       timer = setTimeout(function() {
         var myId = ++requestId;
         suggestBox.hidden = false;
@@ -1215,6 +1352,21 @@
 
   setupAddressSearch('originSearch', 'originSuggest', function(coords, label) { setOrigin(coords, label); });
   setupAddressSearch('destSearch', 'destSuggest', function(coords, label) { setDest(coords, label); });
+
+  document.getElementById('saveOriginBtn').addEventListener('click', function() {
+    if (!state.origin) return;
+    var name = prompt('¿Cómo querés llamar a este lugar?', document.getElementById('originSearch').value);
+    if (!name || !name.trim()) return;
+    savePlace(name.trim(), state.origin);
+    toast('Guardado "' + name.trim() + '"');
+  });
+  document.getElementById('saveDestBtn').addEventListener('click', function() {
+    if (!state.dest) return;
+    var name = prompt('¿Cómo querés llamar a este lugar?', document.getElementById('destSearch').value);
+    if (!name || !name.trim()) return;
+    savePlace(name.trim(), state.dest);
+    toast('Guardado "' + name.trim() + '"');
+  });
 
   // Distancia en línea recta entre dos puntos, en metros (para no ni
   // molestar al servidor si el origen y el destino están pegados).
