@@ -107,13 +107,22 @@
     left: 14px;
     z-index: 25;
     font-family: 'Fraunces', Georgia, serif;
-    font-weight: 600;
-    font-size: 13px;
+    font-weight: 700;
+    font-size: 14px;
+    letter-spacing: 0.01em;
     color: var(--text);
     background: var(--surface);
-    padding: 6px 12px;
+    padding: 6px 13px;
     border-radius: 999px;
     box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+  }
+  .brand-arte {
+    background: linear-gradient(90deg, var(--primary), var(--success));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    font-style: italic;
   }
   .theme-toggle-btn {
     position: fixed;
@@ -416,7 +425,7 @@
 
 <div id="mapContainer"></div>
 
-<span class="brand-tiny">TransportArte</span>
+<span class="brand-tiny">Transport<span class="brand-arte">Arte</span></span>
 <button class="theme-toggle-btn" id="themeToggleBtn" type="button">🌙</button>
 
 <div class="bottom-card" id="bottomCard">
