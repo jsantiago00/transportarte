@@ -233,18 +233,15 @@
     margin-bottom: 8px;
   }
   .sheet-summary span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .sheet-chevron {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    color: var(--primary);
-    font-size: 11.5px;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.02em;
+  .sheet-summary { touch-action: none; }
+  .sheet-handle {
+    width: 34px;
+    height: 5px;
+    border-radius: 999px;
+    background: var(--muted);
+    opacity: 0.5;
     flex-shrink: 0;
   }
-  .sheet-chevron .arrow { font-size: 15px; line-height: 1; }
   #sheetBody { flex-shrink: 0; padding-bottom: 4px; }
 
   .search-btn {
@@ -294,6 +291,21 @@
     cursor: pointer;
   }
   .arrival.convenient { background: var(--success-bg); }
+  .arrival.recommended { box-shadow: 0 0 0 2px var(--success); }
+  .recommended-badge {
+    display: inline-block;
+    background: var(--success);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 2px 7px;
+    border-radius: 999px;
+    margin-left: 6px;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
   .journey-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; gap: 8px; }
   .journey-head .journey-when { font-size: 13px; font-weight: 700; color: var(--success); white-space: nowrap; }
   .journey-step { display: flex; gap: 8px; padding: 5px 0; }
@@ -313,7 +325,7 @@
     width: 46px;
     text-align: center;
   }
-  .step-tag.alight { background: var(--text); opacity: 0.75; }
+  .step-tag.alight { background: #55606b; }
   .step-tag.walk { background: var(--warning); width: 60px; }
   .step-body { flex: 1; min-width: 0; }
   .step-route { font-size: 13px; font-weight: 700; }
@@ -376,7 +388,7 @@
 <div class="bottom-card" id="bottomCard">
   <button class="sheet-summary" id="sheetSummary" type="button">
     <span id="sheetSummaryText">Elegí tu origen y destino</span>
-    <span class="sheet-chevron" id="sheetChevron">Minimizar <span class="arrow">▴</span></span>
+    <span class="sheet-handle" id="sheetHandle"></span>
   </button>
   <div id="sheetBody">
     <div class="field">
@@ -397,7 +409,7 @@
 
   <button class="sheet-summary" id="resultsSummary" type="button" hidden>
     <span id="resultsSummaryText">Resultados</span>
-    <span class="sheet-chevron" id="resultsChevron">Minimizar <span class="arrow">▴</span></span>
+    <span class="sheet-handle" id="resultsHandle"></span>
   </button>
   <div id="resultsArea"></div>
   <button class="search-btn" id="searchBtn" type="button" disabled>Buscar viaje</button>
@@ -483,6 +495,10 @@
 
   function walkMins(meters) { return Math.max(1, Math.round(meters / 70)); }
 
+  function whenLabel(mins) { return mins <= 0 ? 'Ahora' : 'Pasa en ' + mins + ' min'; }
+
+  function recommendedBadge() { return '<span class="recommended-badge">★ Recomendado</span>'; }
+
   function originWalkStep(c) {
     if (!c.originWalkMeters || c.originWalkMeters < 50) return '';
     return journeyStep('Caminás', 'walk', '', { label: c.originStop.address || c.originStop.name, stop: c.originStop },
@@ -515,7 +531,7 @@
       var t = a.predictedArrivalTime || a.scheduledArrivalTime;
       var mins = Math.round((t - now) / 60000);
       var route = a.routeShortName || a.routeId || '';
-      return '<div class="arrival"><div class="journey-head"><span class="step-route">' + escapeHtml(route + ' · ' + (a.tripHeadsign || '')) + '</span><span class="journey-when">' + (mins <= 0 ? 'Ahora' : mins + ' min') + '</span></div></div>';
+      return '<div class="arrival"><div class="journey-head"><span class="step-route">' + escapeHtml(route + ' · ' + (a.tripHeadsign || '')) + '</span><span class="journey-when">' + whenLabel(mins) + '</span></div></div>';
     }).join('');
     return rows;
   }
@@ -525,8 +541,8 @@
     return candidates.map(function(c, i) {
       var mins = Math.round((c.originTime - now) / 60000);
       var hasDestWalk = c.destWalkMeters >= 30;
-      return '<div class="arrival convenient" data-idx="' + i + '">' +
-        '<div class="journey-head"><span class="step-route">' + escapeHtml(c.route + ' · ' + c.headsign) + '</span><span class="journey-when">' + (mins <= 0 ? 'Ahora' : mins + ' min') + '</span></div>' +
+      return '<div class="arrival convenient' + (i === 0 ? ' recommended' : '') + '" data-idx="' + i + '">' +
+        '<div class="journey-head"><span class="step-route">' + escapeHtml(c.route + ' · ' + c.headsign) + (i === 0 ? recommendedBadge() : '') + '</span><span class="journey-when">' + whenLabel(mins) + '</span></div>' +
         originWalkStep(c) +
         journeyStep('Subís', 'board', '', { label: c.originStop.address || c.originStop.name, stop: c.originStop }, 'Sale a las ' + fmtClockTime(c.originTime)) +
         journeyStep('Bajás', 'alight', '', { label: c.destStop.address || c.destStop.name, stop: c.destStop }, (hasDestWalk ? 'Baja ~' : 'Llegás ~') + fmtClockTime(c.destTime)) +
@@ -545,8 +561,8 @@
       if (c.walkMeters > 0 && c.boardStop) {
         transferWalkStep = journeyStep('Caminás', 'walk', '', { label: c.boardStop.address || c.boardStop.name, stop: c.boardStop }, '~' + c.walkMeters + ' m (unos ' + walkMins(c.walkMeters) + ' min)');
       }
-      return '<div class="arrival convenient" data-idx="' + i + '">' +
-        '<div class="journey-head"><span class="step-route">' + escapeHtml(c.leg1Route) + ' · con transbordo</span><span class="journey-when">' + (mins <= 0 ? 'Ahora' : mins + ' min') + '</span></div>' +
+      return '<div class="arrival convenient' + (i === 0 ? ' recommended' : '') + '" data-idx="' + i + '">' +
+        '<div class="journey-head"><span class="step-route">' + escapeHtml(c.leg1Route) + ' · con transbordo' + (i === 0 ? recommendedBadge() : '') + '</span><span class="journey-when">' + whenLabel(mins) + '</span></div>' +
         originWalkStep(c) +
         journeyStep('Subís', 'board', c.leg1Headsign, { label: c.originStop.address || c.originStop.name, stop: c.originStop }, 'Sale a las ' + fmtClockTime(c.originTime)) +
         journeyStep('Bajás', 'alight', '', { label: transferLabel, stop: c.transferStop }, 'Llegás ~' + fmtClockTime(c.transferArrival)) +
@@ -575,17 +591,28 @@
       '&destination=' + state.dest.lat + ',' + state.dest.lon + '&travelmode=transit';
   }
 
-  function chevronHtml(collapsed) {
-    return collapsed ? 'Ver más <span class="arrow">▾</span>' : 'Minimizar <span class="arrow">▴</span>';
+  // Deslizar hacia arriba/abajo el "asa" de un panel lo expande/colapsa; un
+  // toque simple (deslizamiento mínimo) también alterna, para que siga
+  // funcionando con mouse o con un tap corto.
+  function wireSwipeToggle(handleEl, isCollapsedFn, setCollapsedFn) {
+    var startY = null;
+    handleEl.addEventListener('pointerdown', function(e) { startY = e.clientY; });
+    handleEl.addEventListener('pointerup', function(e) {
+      if (startY == null) return;
+      var deltaY = e.clientY - startY;
+      startY = null;
+      if (Math.abs(deltaY) < 12) { setCollapsedFn(!isCollapsedFn()); return; }
+      setCollapsedFn(deltaY > 0); // arriba = expandir, abajo = colapsar
+    });
+    handleEl.addEventListener('pointercancel', function() { startY = null; });
   }
 
   function setResultsCollapsed(collapsed) {
     document.getElementById('resultsArea').hidden = collapsed;
-    document.getElementById('resultsChevron').innerHTML = chevronHtml(collapsed);
   }
-  document.getElementById('resultsSummary').addEventListener('click', function() {
-    setResultsCollapsed(!document.getElementById('resultsArea').hidden);
-  });
+  wireSwipeToggle(document.getElementById('resultsSummary'),
+    function() { return document.getElementById('resultsArea').hidden; },
+    setResultsCollapsed);
   function showResultsSummary(text) {
     document.getElementById('resultsSummaryText').textContent = text;
     document.getElementById('resultsSummary').hidden = false;
@@ -715,7 +742,7 @@
       var t = a.predictedArrivalTime || a.scheduledArrivalTime;
       var mins = Math.round((t - now) / 60000);
       var route = a.routeShortName || a.routeId || '';
-      return '<div class="arrival" data-shape="' + escapeHtml(a.shapeId || '') + '"><div class="journey-head"><span class="step-route">' + escapeHtml(route + ' · ' + (a.tripHeadsign || '')) + '</span><span class="journey-when">' + (mins <= 0 ? 'Ahora' : mins + ' min') + '</span></div></div>';
+      return '<div class="arrival" data-shape="' + escapeHtml(a.shapeId || '') + '"><div class="journey-head"><span class="step-route">' + escapeHtml(route + ' · ' + (a.tripHeadsign || '')) + '</span><span class="journey-when">' + whenLabel(mins) + '</span></div></div>';
     }).join('');
   }
 
@@ -948,6 +975,7 @@
     var card = e.target.closest('.arrival[data-idx]');
     if (!card) return;
     highlightCandidate(parseInt(card.getAttribute('data-idx'), 10));
+    setResultsCollapsed(true); // deja ver el mapa con el recorrido recién marcado
   });
 
   function startLiveLocation() {
@@ -966,18 +994,21 @@
       enableHighAccuracy: true, maximumAge: 5000, timeout: 10000
     });
   }
-  startLiveLocation();
+  // iOS Safari puede negarse a mostrar el permiso de ubicación (sin avisar
+  // ni fallar) si se lo pedimos apenas carga la página, sin que haya un
+  // gesto del usuario de por medio. Por eso esperamos al primer toque en
+  // cualquier parte de la página para recién ahí arrancar el seguimiento.
+  document.addEventListener('pointerdown', startLiveLocation, { once: true });
 
   function defaultCoordLabel(coords) { return coords.lat.toFixed(5) + ', ' + coords.lon.toFixed(5); }
 
-  // ---------- Panel inferior: minimizar/expandir el selector de origen/destino ----------
+  // ---------- Panel inferior: deslizar para minimizar/expandir el selector de origen/destino ----------
   function setSheetCollapsed(collapsed) {
     document.getElementById('sheetBody').hidden = collapsed;
-    document.getElementById('sheetChevron').innerHTML = chevronHtml(collapsed);
   }
-  document.getElementById('sheetSummary').addEventListener('click', function() {
-    setSheetCollapsed(!document.getElementById('sheetBody').hidden);
-  });
+  wireSwipeToggle(document.getElementById('sheetSummary'),
+    function() { return document.getElementById('sheetBody').hidden; },
+    setSheetCollapsed);
   function updateSheetSummary() {
     var el = document.getElementById('sheetSummaryText');
     if (!state.origin && !state.dest) { el.textContent = 'Elegí tu origen y destino'; return; }
