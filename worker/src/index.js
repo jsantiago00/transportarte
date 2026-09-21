@@ -84,8 +84,14 @@ function reverseGeocode(lat, lon) {
   }).then((r) => ({ label: r.display_name || null }));
 }
 
-function fetchTripDetails(tripId) {
-  return fetchOBA("trip-details-for-trip/" + encodeURIComponent(tripId) + ".json", {
+// Cloudflare limita cuántas peticiones salientes puede hacer un mismo Worker
+// por invocación. findDirectCandidates, buildReachableMap y buildCoverageMap
+// terminan pidiendo trip-details para muchos de los MISMOS viajes (todos
+// escanean los arribos de las paradas de origen/destino), así que memoizamos
+// por tripId durante todo el pedido para no pagar esa consulta dos veces.
+function fetchTripDetails(tripId, cache) {
+  if (cache && cache.has(tripId)) return cache.get(tripId);
+  const promise = fetchOBA("trip-details-for-trip/" + encodeURIComponent(tripId) + ".json", {
     platform: "web", v: "", version: "1.0",
   }).then((data) => {
     const stopTimes = (data.entry && data.entry.schedule && data.entry.schedule.stopTimes) || [];
@@ -101,6 +107,8 @@ function fetchTripDetails(tripId) {
     console.log("fetchTripDetails failed for " + tripId + ": " + err.message);
     return { stopTimes: [], codeById: {}, refByCode: {} };
   });
+  if (cache) cache.set(tripId, promise);
+  return promise;
 }
 
 function haversine(lat1, lon1, lat2, lon2) {
@@ -116,9 +124,13 @@ function haversine(lat1, lon1, lat2, lon2) {
 // caminata (verificado: 19 a menos de 700m en un caso real), y la línea que
 // buscamos puede no ser la que tiene la parada más cercana de TODAS - sólo la
 // más cercana entre las que sirven esa línea. Por eso, si hay paradas dentro
-// del radio, las usamos prácticamente todas (hasta este tope de seguridad)
-// en vez de cortar a un top-N general que mezcla paradas de otras líneas.
-const MAX_NEARBY_STOPS = 15;
+// del radio, las usamos casi todas en vez de cortar a un top-N general que
+// mezcla paradas de otras líneas. OJO: subir este número de más hace que el
+// pedido entero falle en silencio (Cloudflare corta la invocación por
+// exceso de peticiones salientes: confirmado en un caso real donde 15
+// paradas por lado tiraban abajo TODA la búsqueda de transbordos). 10 es un
+// compromiso entre cobertura y no pasarnos del límite.
+const MAX_NEARBY_STOPS = 10;
 
 // stops-for-location.json de Mendotran es inconsistente: para el mismo centro,
 // una parada puede aparecer con un recuadro de búsqueda chico y desaparecer con
@@ -192,13 +204,13 @@ const TRANSFER_BUFFER_MS = 3 * 60000;
 // Recorre la secuencia completa de paradas de cada colectivo próximo (no solo los arribos
 // ya anunciados en la parada de destino) para saber con certeza si, más adelante en su
 // recorrido, ese mismo viaje pasa por alguna parada cercana al destino.
-function findDirectCandidates(originResults, destStops, limit) {
+function findDirectCandidates(originResults, destStops, limit, tripCache) {
   const destByCode = {};
   destStops.forEach((s) => { destByCode[s.name] = s; });
-  const toProbe = flattenSoonestTrips(originResults, 5);
+  const toProbe = flattenSoonestTrips(originResults, 4);
 
   return Promise.all(toProbe.map((item) =>
-    fetchTripDetails(item.arrival.tripId).then((details) => ({ item, details }))
+    fetchTripDetails(item.arrival.tripId, tripCache).then((details) => ({ item, details }))
   )).then((results) => {
     let candidates = [];
     results.forEach((r) => {
@@ -279,10 +291,10 @@ function findDirectCandidates(originResults, destStops, limit) {
 
 // Búsqueda "hacia adelante": para cada colectivo próximo cerca del origen, a qué parada
 // (y a qué hora) se puede llegar en cada punto de su recorrido.
-function buildReachableMap(originResults, limit) {
+function buildReachableMap(originResults, limit, tripCache) {
   const toProbe = flattenSoonestTrips(originResults, limit);
   return Promise.all(toProbe.map((item) =>
-    fetchTripDetails(item.arrival.tripId).then((details) => ({ item, details }))
+    fetchTripDetails(item.arrival.tripId, tripCache).then((details) => ({ item, details }))
   )).then((results) => {
     const reachable = {};
     results.forEach((r) => {
@@ -325,13 +337,13 @@ function buildReachableMap(originResults, limit) {
 
 // Búsqueda "hacia atrás": para cada colectivo que está por llegar a una parada cerca
 // del destino, en qué paradas anteriores de su recorrido se lo podría abordar y a qué hora.
-function buildCoverageMap(destResults, destStops, limit) {
+function buildCoverageMap(destResults, destStops, limit, tripCache) {
   const destCodes = {};
   destStops.forEach((s) => { destCodes[s.name] = s; });
   const toProbe = flattenSoonestTrips(destResults, limit);
 
   return Promise.all(toProbe.map((item) =>
-    fetchTripDetails(item.arrival.tripId).then((details) => ({ item, details }))
+    fetchTripDetails(item.arrival.tripId, tripCache).then((details) => ({ item, details }))
   )).then((results) => {
     const coverage = {};
     results.forEach((r) => {
@@ -445,8 +457,8 @@ async function handleRoute(url) {
   let originStops, destStops;
   try {
     [originStops, destStops] = await Promise.all([
-      findNearestStops(fromLat, fromLon, 8, MAX_WALK_METERS),
-      findNearestStops(toLat, toLon, 8, MAX_WALK_METERS),
+      findNearestStops(fromLat, fromLon, 6, MAX_WALK_METERS),
+      findNearestStops(toLat, toLon, 6, MAX_WALK_METERS),
     ]);
   } catch (err) {
     return json({ code: 502, text: "No se encontraron paradas cercanas: " + err.message }, 502);
@@ -454,9 +466,14 @@ async function handleRoute(url) {
 
   console.log("originStops: " + originStops.map((s) => s.name).join(",") + " | destStops: " + destStops.map((s) => s.name).join(","));
 
+  // Cloudflare corta la invocación si hace demasiadas peticiones salientes;
+  // este cache (por tripId) evita pedir el mismo trip-details más de una vez
+  // aunque lo toquen findDirectCandidates, buildReachableMap y buildCoverageMap.
+  const tripCache = new Map();
+
   const originResults = await buildStopArrivals(originStops);
   console.log("origin arrivals counts: " + originResults.map((r) => r.stop.name + "=" + r.arrivals.length).join(", "));
-  const direct = await findDirectCandidates(originResults, destStops, 5);
+  const direct = await findDirectCandidates(originResults, destStops, 5, tripCache);
 
   if (direct.length) {
     return json({ code: 200, data: { direct, transfer: [], fallback: null } });
@@ -465,8 +482,8 @@ async function handleRoute(url) {
   const destResults = await buildStopArrivals(destStops);
   console.log("dest arrivals counts: " + destResults.map((r) => r.stop.name + "=" + r.arrivals.length).join(", "));
   const [reachable, coverage] = await Promise.all([
-    buildReachableMap(originResults, 4),
-    buildCoverageMap(destResults, destStops, 8),
+    buildReachableMap(originResults, 3, tripCache),
+    buildCoverageMap(destResults, destStops, 4, tripCache),
   ]);
   console.log("reachable codes: " + Object.keys(reachable).length + " | coverage codes: " + Object.keys(coverage).length);
   const transfer = findTwoLegCandidates(reachable, coverage, 5);
