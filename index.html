@@ -1167,7 +1167,9 @@
     }
     updateSearchEnabled();
     clearRouteLines();
-    armTarget(target);
+    // Si falta el origen, siempre se pide primero - así, borrar destino
+    // después de haber borrado origen no deja "trabado" armado el destino.
+    armTarget(state.origin ? (state.dest ? null : 'dest') : 'origin');
   }
 
   function placeMarker(target, coords) {
