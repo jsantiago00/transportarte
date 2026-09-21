@@ -343,6 +343,20 @@
     vertical-align: middle;
     white-space: nowrap;
   }
+  .journey-toggle {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    background: none;
+    border: none;
+    color: var(--primary);
+    font-size: 11.5px;
+    font-weight: 700;
+    padding: 2px 0 4px;
+    cursor: pointer;
+  }
+  .journey-toggle .arrow { font-size: 13px; line-height: 1; }
+  .journey-details { padding-top: 2px; }
   .faster-alt-note {
     font-size: 11px;
     font-weight: 700;
@@ -569,6 +583,10 @@
 
   function recommendedBadge() { return '<span class="recommended-badge">★ Recomendado</span>'; }
 
+  function journeyToggleButton() {
+    return '<button type="button" class="journey-toggle">Ver guía de viaje <span class="arrow">▾</span></button>';
+  }
+
   // Cuando esta opción llega antes que la recomendada pero implica caminar
   // más, el backend la deja anotada con cuánto se gana en tiempo y cuánto se
   // pierde en caminata eligiéndola en su lugar.
@@ -623,10 +641,13 @@
       return '<div class="arrival ' + (i === 0 ? 'recommended' : 'also-good') + '" data-idx="' + i + '">' +
         '<div class="journey-head"><span class="step-route">' + escapeHtml(c.route + ' · ' + c.headsign) + (i === 0 ? recommendedBadge() : '') + '</span><span class="journey-when">' + whenLabel(mins) + '</span></div>' +
         fasterAlternativeNote(c) +
-        originWalkStep(c) +
-        journeyStep('Subís', 'board', '', { label: c.originStop.address || c.originStop.name, stop: c.originStop }, 'Sale a las ' + fmtClockTime(c.originTime)) +
-        journeyStep('Bajás', 'alight', '', { label: c.destStop.address || c.destStop.name, stop: c.destStop }, (hasDestWalk ? 'Baja ~' : 'Llegás ~') + fmtClockTime(c.destTime)) +
-        destWalkStep(c) +
+        journeyToggleButton() +
+        '<div class="journey-details" hidden>' +
+          originWalkStep(c) +
+          journeyStep('Subís', 'board', '', { label: c.originStop.address || c.originStop.name, stop: c.originStop }, 'Sale a las ' + fmtClockTime(c.originTime)) +
+          journeyStep('Bajás', 'alight', '', { label: c.destStop.address || c.destStop.name, stop: c.destStop }, (hasDestWalk ? 'Baja ~' : 'Llegás ~') + fmtClockTime(c.destTime)) +
+          destWalkStep(c) +
+        '</div>' +
       '</div>';
     }).join('');
   }
@@ -644,13 +665,16 @@
       return '<div class="arrival ' + (i === 0 ? 'recommended' : 'also-good') + '" data-idx="' + i + '">' +
         '<div class="journey-head"><span class="step-route">' + escapeHtml(c.leg1Route) + ' · con transbordo' + (i === 0 ? recommendedBadge() : '') + '</span><span class="journey-when">' + whenLabel(mins) + '</span></div>' +
         fasterAlternativeNote(c) +
-        originWalkStep(c) +
-        journeyStep('Subís', 'board', c.leg1Headsign, { label: c.originStop.address || c.originStop.name, stop: c.originStop }, 'Sale a las ' + fmtClockTime(c.originTime)) +
-        journeyStep('Bajás', 'alight', '', { label: transferLabel, stop: c.transferStop }, 'Llegás ~' + fmtClockTime(c.transferArrival)) +
-        transferWalkStep +
-        journeyStep('Subís', 'board', c.leg2Route + ' · ' + c.leg2Headsign, null, 'Sale ~' + fmtClockTime(c.transferBoard)) +
-        journeyStep('Bajás', 'alight', '', { label: c.destStop.address || c.destStop.name, stop: c.destStop }, (hasDestWalk ? 'Baja ~' : 'Llegás ~') + fmtClockTime(c.destTime)) +
-        destWalkStep(c) +
+        journeyToggleButton() +
+        '<div class="journey-details" hidden>' +
+          originWalkStep(c) +
+          journeyStep('Subís', 'board', c.leg1Headsign, { label: c.originStop.address || c.originStop.name, stop: c.originStop }, 'Sale a las ' + fmtClockTime(c.originTime)) +
+          journeyStep('Bajás', 'alight', '', { label: transferLabel, stop: c.transferStop }, 'Llegás ~' + fmtClockTime(c.transferArrival)) +
+          transferWalkStep +
+          journeyStep('Subís', 'board', c.leg2Route + ' · ' + c.leg2Headsign, null, 'Sale ~' + fmtClockTime(c.transferBoard)) +
+          journeyStep('Bajás', 'alight', '', { label: c.destStop.address || c.destStop.name, stop: c.destStop }, (hasDestWalk ? 'Baja ~' : 'Llegás ~') + fmtClockTime(c.destTime)) +
+          destWalkStep(c) +
+        '</div>' +
       '</div>';
     }).join('');
   }
@@ -1115,6 +1139,16 @@
   }
 
   document.getElementById('resultsArea').addEventListener('click', function(e) {
+    var toggle = e.target.closest('.journey-toggle');
+    if (toggle) {
+      var details = toggle.nextElementSibling;
+      var expanding = details.hidden;
+      details.hidden = !expanding;
+      toggle.innerHTML = expanding
+        ? 'Ocultar guía de viaje <span class="arrow">▴</span>'
+        : 'Ver guía de viaje <span class="arrow">▾</span>';
+      return; // sólo despliega el detalle - no dibuja el recorrido ni colapsa el panel
+    }
     if (e.target.closest('a')) return;
     var card = e.target.closest('.arrival[data-idx]');
     if (!card) return;
