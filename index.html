@@ -1069,8 +1069,20 @@
     boundsPoints.push([stop.lat, stop.lon]);
   }
 
-  function finishRouteDraw(boundsPoints) {
+  // frameOriginDest: en vez de encuadrar todo lo dibujado (que puede incluir
+  // rodeos del propio colectivo), encuadra sólo tu origen y destino reales,
+  // para que queden cerca de los bordes del mapa y el recorrido se vea en
+  // el medio - evita el "deszoom" cuando un colectivo se aleja del camino
+  // directo antes de volver.
+  function finishRouteDraw(boundsPoints, frameOriginDest) {
     if (!boundsPoints.length) { toast('No pudimos cargar el recorrido de esta línea.'); return; }
+    if (frameOriginDest && state.origin && state.dest) {
+      leafletMap.fitBounds(L.latLngBounds([
+        [state.origin.lat, state.origin.lon],
+        [state.dest.lat, state.dest.lon]
+      ]), { paddingTopLeft: [30, 60], paddingBottomRight: [30, 280] });
+      return;
+    }
     leafletMap.fitBounds(L.latLngBounds(boundsPoints), { paddingTopLeft: [30, 60], paddingBottomRight: [30, 280] });
   }
 
@@ -1128,14 +1140,16 @@
     var dimTasks = [];
     lastCandidates.forEach(function(c, i) {
       if (i === idx) return;
-      shapeIdsFor(c).filter(Boolean).forEach(function(shapeId) { dimTasks.push(drawDimShape(shapeId, bounds)); });
+      // Se dibujan igual (para comparar de un vistazo) pero con un array de
+      // bounds "tirable": no deben influir en el encuadre final.
+      shapeIdsFor(c).filter(Boolean).forEach(function(shapeId) { dimTasks.push(drawDimShape(shapeId, [])); });
     });
     Promise.all(dimTasks).then(function() {
       var top = lastCandidates[idx];
       var topTasks = shapeIdsFor(top).filter(Boolean).map(function(shapeId) { return drawBusShape(shapeId, bounds); });
       topTasks = topTasks.concat(drawStopsAndWalks(top, bounds));
       return Promise.all(topTasks);
-    }).then(function() { finishRouteDraw(bounds); });
+    }).then(function() { finishRouteDraw(bounds, true); });
   }
 
   document.getElementById('resultsArea').addEventListener('click', function(e) {
