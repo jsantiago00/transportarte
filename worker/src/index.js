@@ -351,31 +351,45 @@ function buildCoverageMap(destResults, destStops, limit, tripCache) {
       if (!stopTimes.length) return;
       const a = r.item.arrival;
       const reportedPredicted = a.predictedArrivalTime || a.scheduledArrivalTime;
-      // Mismo criterio que en las otras dos búsquedas: si el trip pasa dos
-      // veces cerca del destino (circuito), probamos cada paso y nos
-      // quedamos, por cada posible parada de subida, con la que implica el
-      // tramo más directo (el boardTime más tardío = el viaje más corto).
-      let firstDestEntry = null;
+      // reportedPredicted es el horario en vivo para r.item.stop puntualmente
+      // (así lo reportó arrivals-and-departures-for-stop), no para "la primera
+      // parada candidata que aparezca". Anclamos el desfasaje en-vivo-vs-
+      // programado a la propia parada de r.item.stop; si no la encontramos en
+      // este trip (no debería pasar), lo salteamos en vez de inventar un
+      // horario con un ancla equivocada.
+      let anchorEntry = null;
+      for (let k = 0; k < stopTimes.length; k++) {
+        if (codeById[stopTimes[k].stopId] === r.item.stop.name) { anchorEntry = stopTimes[k]; break; }
+      }
+      if (!anchorEntry) return;
+      // Si el trip pasa dos veces cerca del destino (circuito), o pasa por
+      // varias paradas candidatas seguidas, probamos cada una y nos quedamos,
+      // por cada posible parada de subida, con la que te deja antes en el
+      // destino REAL (viaje + caminata final), no sólo con la que aparece
+      // primero o da el tramo más corto en el bondi.
       for (let i = 0; i < stopTimes.length; i++) {
         const destCode = codeById[stopTimes[i].stopId];
         if (!destCode || !destCodes[destCode]) continue;
         const destEntry = stopTimes[i];
-        if (!firstDestEntry) firstDestEntry = destEntry;
-        const liveOffsetMs = (destEntry.arrivalTime - firstDestEntry.arrivalTime) * 1000;
+        const liveOffsetMs = (destEntry.arrivalTime - anchorEntry.arrivalTime) * 1000;
         const destPredicted = reportedPredicted + liveOffsetMs;
+        const destStop = destCodes[destCode];
+        const destWalkMs = ((destStop.walkMeters || 0) / WALK_SPEED_M_PER_MIN) * 60000;
+        const totalArrival = destPredicted + destWalkMs;
         for (let j = 0; j < i; j++) {
           const code = codeById[stopTimes[j].stopId];
           if (!code) continue;
           const boardTime = destPredicted - (destEntry.arrivalTime - stopTimes[j].arrivalTime) * 1000;
-          if (!coverage[code] || boardTime > coverage[code].boardTime) {
+          if (!coverage[code] || totalArrival < coverage[code].totalArrival) {
             coverage[code] = {
               stopRef: refByCode[code],
               boardTime,
               route: a.routeShortName || a.routeId || "",
               headsign: a.tripHeadsign || "",
               shapeId: a.shapeId || null,
-              destStop: destCodes[destCode],
+              destStop,
               destTime: destPredicted,
+              totalArrival,
             };
           }
         }
@@ -410,7 +424,10 @@ function findTwoLegCandidates(reachable, coverage, limit) {
       }
       const walkMs = (walkMeters / WALK_SPEED_M_PER_MIN) * 60000;
       if (cov.boardTime < reach.arrivalTime + walkMs + TRANSFER_BUFFER_MS) return;
-      if (!best || cov.destTime < best.cov.destTime) best = { cov, walkMeters };
+      // cov.totalArrival ya incluye la caminata final de ESA opción - comparamos
+      // por ahí para no preferir una parada de bajada más lejos sólo porque el
+      // bondi llega un poco antes.
+      if (!best || cov.totalArrival < best.cov.totalArrival) best = { cov, walkMeters };
     });
 
     if (best) {
@@ -440,6 +457,29 @@ function findTwoLegCandidates(reachable, coverage, limit) {
   });
   candidates.sort((a, b) => (a.arrivalTime - b.arrivalTime) || (a.totalWalkMeters - b.totalWalkMeters));
   return candidates.slice(0, limit || 5);
+}
+
+// Entre las opciones que llegan casi al mismo tiempo (hasta 5 min de
+// diferencia contra la más rápida), preferimos la que menos hay que caminar
+// en vez de la que llega unos minutos antes a cambio de más caminata. La
+// más rápida queda igual en la lista, pero marcada con cuánto se gana en
+// tiempo y cuánto se pierde en caminata eligiéndola en su lugar.
+const WALK_TIE_WINDOW_MS = 5 * 60000;
+
+function preferLessWalking(candidates) {
+  if (candidates.length < 2) return candidates;
+  const fastest = candidates[0];
+  let best = fastest;
+  candidates.forEach((c) => {
+    if (c.arrivalTime - fastest.arrivalTime > WALK_TIE_WINDOW_MS) return;
+    if (c.totalWalkMeters < best.totalWalkMeters) best = c;
+  });
+  if (best === fastest) return candidates;
+  fastest.fasterAlternative = {
+    minutesSaved: Math.round((best.arrivalTime - fastest.arrivalTime) / 60000),
+    extraWalkMeters: fastest.totalWalkMeters - best.totalWalkMeters,
+  };
+  return [best].concat(candidates.filter((c) => c !== best));
 }
 
 // ---------- Endpoint /route.json ----------
@@ -476,20 +516,20 @@ async function handleRoute(url) {
   const direct = await findDirectCandidates(originResults, destStops, 5, tripCache);
 
   if (direct.length) {
-    return json({ code: 200, data: { direct, transfer: [], fallback: null } });
+    return json({ code: 200, data: { direct: preferLessWalking(direct), transfer: [], fallback: null } });
   }
 
   const destResults = await buildStopArrivals(destStops);
   console.log("dest arrivals counts: " + destResults.map((r) => r.stop.name + "=" + r.arrivals.length).join(", "));
   const [reachable, coverage] = await Promise.all([
-    buildReachableMap(originResults, 3, tripCache),
+    buildReachableMap(originResults, 4, tripCache),
     buildCoverageMap(destResults, destStops, 4, tripCache),
   ]);
   console.log("reachable codes: " + Object.keys(reachable).length + " | coverage codes: " + Object.keys(coverage).length);
   const transfer = findTwoLegCandidates(reachable, coverage, 5);
 
   if (transfer.length) {
-    return json({ code: 200, data: { direct: [], transfer, fallback: null } });
+    return json({ code: 200, data: { direct: [], transfer: preferLessWalking(transfer), fallback: null } });
   }
 
   return json({

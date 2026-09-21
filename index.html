@@ -306,6 +306,12 @@
     vertical-align: middle;
     white-space: nowrap;
   }
+  .faster-alt-note {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--warning);
+    margin: -2px 0 6px;
+  }
   .journey-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; gap: 8px; }
   .journey-head .journey-when { font-size: 13px; font-weight: 700; color: var(--success); white-space: nowrap; }
   .journey-step { display: flex; gap: 8px; padding: 5px 0; }
@@ -499,6 +505,15 @@
 
   function recommendedBadge() { return '<span class="recommended-badge">★ Recomendado</span>'; }
 
+  // Cuando esta opción llega antes que la recomendada pero implica caminar
+  // más, el backend la deja anotada con cuánto se gana en tiempo y cuánto se
+  // pierde en caminata eligiéndola en su lugar.
+  function fasterAlternativeNote(c) {
+    if (!c.fasterAlternative) return '';
+    var f = c.fasterAlternative;
+    return '<p class="faster-alt-note">⚡ Llegás ' + f.minutesSaved + ' min antes, pero caminás ' + f.extraWalkMeters + ' m más</p>';
+  }
+
   function originWalkStep(c) {
     if (!c.originWalkMeters || c.originWalkMeters < 50) return '';
     return journeyStep('Caminás', 'walk', '', { label: c.originStop.address || c.originStop.name, stop: c.originStop },
@@ -543,6 +558,7 @@
       var hasDestWalk = c.destWalkMeters >= 30;
       return '<div class="arrival convenient' + (i === 0 ? ' recommended' : '') + '" data-idx="' + i + '">' +
         '<div class="journey-head"><span class="step-route">' + escapeHtml(c.route + ' · ' + c.headsign) + (i === 0 ? recommendedBadge() : '') + '</span><span class="journey-when">' + whenLabel(mins) + '</span></div>' +
+        fasterAlternativeNote(c) +
         originWalkStep(c) +
         journeyStep('Subís', 'board', '', { label: c.originStop.address || c.originStop.name, stop: c.originStop }, 'Sale a las ' + fmtClockTime(c.originTime)) +
         journeyStep('Bajás', 'alight', '', { label: c.destStop.address || c.destStop.name, stop: c.destStop }, (hasDestWalk ? 'Baja ~' : 'Llegás ~') + fmtClockTime(c.destTime)) +
@@ -563,6 +579,7 @@
       }
       return '<div class="arrival convenient' + (i === 0 ? ' recommended' : '') + '" data-idx="' + i + '">' +
         '<div class="journey-head"><span class="step-route">' + escapeHtml(c.leg1Route) + ' · con transbordo' + (i === 0 ? recommendedBadge() : '') + '</span><span class="journey-when">' + whenLabel(mins) + '</span></div>' +
+        fasterAlternativeNote(c) +
         originWalkStep(c) +
         journeyStep('Subís', 'board', c.leg1Headsign, { label: c.originStop.address || c.originStop.name, stop: c.originStop }, 'Sale a las ' + fmtClockTime(c.originTime)) +
         journeyStep('Bajás', 'alight', '', { label: transferLabel, stop: c.transferStop }, 'Llegás ~' + fmtClockTime(c.transferArrival)) +
