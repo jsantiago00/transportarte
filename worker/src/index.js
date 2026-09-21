@@ -405,6 +405,7 @@ function buildCoverageMap(destResults, destStops, limit, tripCache) {
 // bajada -> destino real).
 const WALK_SPEED_M_PER_MIN = 70; // paso tranquilo, con margen
 const MAX_WALK_METERS = 700; // ~10 min caminando
+const MIN_TRIP_METERS = 300; // más cerca que esto, directamente conviene ir caminando
 
 function findTwoLegCandidates(reachable, coverage, limit) {
   const coverageList = Object.keys(coverage).map((code) => Object.assign({ code }, coverage[code]));
@@ -492,6 +493,17 @@ async function handleRoute(url) {
   const toLon = parseFloat(url.searchParams.get("toLon"));
   if ([fromLat, fromLon, toLat, toLon].some((n) => Number.isNaN(n))) {
     return json({ code: 400, text: "Faltan o son inválidos fromLat/fromLon/toLat/toLon" }, 400);
+  }
+
+  // Si origen y destino están prácticamente pegados, ni vale la pena buscar
+  // colectivo (conviene ir caminando) - cortamos acá antes de gastar ninguna
+  // llamada al resto de la API.
+  const directMeters = haversine(fromLat, fromLon, toLat, toLon) * 1000;
+  if (directMeters < MIN_TRIP_METERS) {
+    return json({
+      code: 200,
+      data: { direct: [], transfer: [], fallback: null, tooClose: true, distanceMeters: Math.round(directMeters) },
+    });
   }
 
   let originStops, destStops;

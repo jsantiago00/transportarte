@@ -642,6 +642,14 @@
   function renderResults(data) {
     var el = document.getElementById('resultsArea');
     var mapsLink = '<div class="btn-row"><a class="btn btn-outline btn-full" style="text-align:center;text-decoration:none;" href="' + mapsDirUrl() + '" target="_blank" rel="noopener">Ver ruta completa en Google Maps</a></div>';
+    if (data.tooClose) {
+      lastCandidates = [];
+      lastCandidateType = null;
+      clearRouteLines();
+      hideResultsSummary();
+      el.innerHTML = '<p class="empty-hint">Tu origen y destino están a apenas ~' + data.distanceMeters + ' m — te conviene ir caminando, no hace falta colectivo.</p>';
+      return;
+    }
     if (data.direct && data.direct.length) {
       lastCandidates = data.direct;
       lastCandidateType = 'direct';
@@ -1208,12 +1216,30 @@
   setupAddressSearch('originSearch', 'originSuggest', function(coords, label) { setOrigin(coords, label); });
   setupAddressSearch('destSearch', 'destSuggest', function(coords, label) { setDest(coords, label); });
 
+  // Distancia en línea recta entre dos puntos, en metros (para no ni
+  // molestar al servidor si el origen y el destino están pegados).
+  function haversineMeters(lat1, lon1, lat2, lon2) {
+    var R = 6371000, toRad = function(x) { return x * Math.PI / 180; };
+    var dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+    var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+  var MIN_TRIP_METERS = 300;
+
   document.getElementById('searchBtn').addEventListener('click', function() {
     if (!state.origin || !state.dest) return;
     var btn = document.getElementById('searchBtn');
+    var el = document.getElementById('resultsArea');
+
+    var directMeters = haversineMeters(state.origin.lat, state.origin.lon, state.dest.lat, state.dest.lon);
+    if (directMeters < MIN_TRIP_METERS) {
+      renderResults({ tooClose: true, distanceMeters: Math.round(directMeters) });
+      return;
+    }
+
     btn.disabled = true;
     btn.textContent = 'Buscando...';
-    var el = document.getElementById('resultsArea');
     hideResultsSummary();
     setResultsCollapsed(false);
     el.innerHTML = '<p class="transit-loading">Buscando las mejores opciones...</p>';
