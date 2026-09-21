@@ -87,6 +87,19 @@
   input, select, textarea { font-family: inherit; font-size: 16px; }
 
   #mapContainer { position: fixed; inset: 0; z-index: 0; background: var(--surface-2); }
+  /* El basemap con calles de Esri no tiene variante oscura gratis con
+     nombres de calle para esta zona (probamos su Canvas oscuro: la capa de
+     labels viene vacía acá). Invertimos el mapa claro con CSS para mantener
+     los nombres - hue-rotate reacomoda los colores para que no queden con
+     tonos raros, y bajamos saturación/contraste para que no sea tan duro. */
+  :root[data-theme="dark"] #mapContainer .leaflet-tile-pane {
+    filter: invert(1) hue-rotate(200deg) brightness(0.87) contrast(0.85) saturate(0.7);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) #mapContainer .leaflet-tile-pane {
+      filter: invert(1) hue-rotate(200deg) brightness(0.87) contrast(0.85) saturate(0.7);
+    }
+  }
 
   .brand-tiny {
     position: fixed;
@@ -749,18 +762,16 @@
   }
 
   // ---------- Mapa persistente (Leaflet + tiles de Esri, sin API key) ----------
-  // En modo claro usamos World Street Map (trae calles secundarias, no sólo
-  // las principales). Esri no tiene una variante oscura de ese mismo estilo
-  // gratis, así que en modo oscuro usamos su basemap "Canvas" gris oscuro
-  // (real, no un filtro CSS inventado) - pierde algo de detalle de calles
-  // menores, pero se ve mucho mejor que invertir los colores del claro.
+  // Usamos World Street Map en los dos temas: trae calles secundarias, no
+  // sólo las principales. Probamos el basemap oscuro "Canvas" de Esri para
+  // el modo oscuro, pero su capa de nombres de calle viene vacía para
+  // Mendoza (no es un problema de zoom, directamente no hay datos acá). Así
+  // que en modo oscuro invertimos los colores de World Street Map con un
+  // filtro CSS (ver la regla de .leaflet-tile-pane) - se pierde algo de
+  // fidelidad de color, pero mantiene los nombres de las calles.
+  var TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
   var TILE_ATTRIBUTION = 'Tiles &copy; <a href="https://www.esri.com">Esri</a> — Esri, HERE, Garmin, USGS, Intermap, ' +
     '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, GIS User Community';
-  function tileUrlForTheme() {
-    return currentEffectiveDark()
-      ? 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}'
-      : 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
-  }
 
   function pinIcon(color) {
     return L.divIcon({
@@ -775,13 +786,8 @@
   var leafletMap = L.map('mapContainer', { zoomControl: false }).setView([-32.89, -68.84], 13);
   var currentTileLayer = null;
   function refreshTileLayer() {
-    if (currentTileLayer) leafletMap.removeLayer(currentTileLayer);
-    var dark = currentEffectiveDark();
-    currentTileLayer = L.tileLayer(tileUrlForTheme(), {
-      maxZoom: 19,
-      maxNativeZoom: dark ? 16 : 19,
-      attribution: TILE_ATTRIBUTION
-    }).addTo(leafletMap);
+    if (currentTileLayer) return; // una sola capa: el filtro CSS hace el resto
+    currentTileLayer = L.tileLayer(TILE_URL, { maxZoom: 19, attribution: TILE_ATTRIBUTION }).addTo(leafletMap);
     currentTileLayer.bringToBack();
   }
   refreshTileLayer();
