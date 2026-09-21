@@ -209,8 +209,15 @@ function findDirectCandidates(originResults, destStops, limit) {
       // destino). Si tomábamos siempre la PRIMERA vez que el trip pisa la
       // parada de origen, podíamos terminar recomendando subirse justo antes
       // de ese desvío en lugar de esperar el paso directo. Por eso probamos
-      // cada vez que el trip pasa por la parada de origen y nos quedamos con
-      // la que llega más rápido al destino.
+      // cada vez que el trip pasa por la parada de origen.
+      //
+      // Del lado del destino pasa algo parecido pero distinto: el trip suele
+      // pasar cerca de VARIAS paradas candidatas seguidas (a veces con
+      // segundos de diferencia), y quedarnos con la primera que aparece en
+      // el recorrido - en vez de la que menos hay que caminar después - podía
+      // hacer bajar 300m más lejos por una parada que pasaba 40 segundos
+      // antes. Por eso comparamos todas las paradas de destino alcanzables
+      // y elegimos la que minimiza viaje en el bondi + caminata final juntos.
       let firstOriginEntry = null;
       let best = null;
       for (let i = 0; i < stopTimes.length; i++) {
@@ -221,11 +228,13 @@ function findDirectCandidates(originResults, destStops, limit) {
           const code = codeById[stopTimes[j].stopId];
           if (!code || !destByCode[code]) continue;
           const destEntry = stopTimes[j];
+          const destStop = destByCode[code];
           const rideSeconds = destEntry.arrivalTime - originEntry.arrivalTime;
-          if (!best || rideSeconds < best.rideSeconds) {
-            best = { originEntry, destEntry, destStop: destByCode[code], rideSeconds };
+          const destWalkSeconds = ((destStop.walkMeters || 0) / WALK_SPEED_M_PER_MIN) * 60;
+          const totalSeconds = rideSeconds + destWalkSeconds;
+          if (!best || totalSeconds < best.totalSeconds) {
+            best = { originEntry, destEntry, destStop, rideSeconds, totalSeconds };
           }
-          break;
         }
       }
       if (!best) return;
