@@ -676,20 +676,28 @@
   // toque simple (deslizamiento mínimo) también alterna, para que siga
   // funcionando con mouse o con un tap corto.
   function wireSwipeToggle(handleEl, isCollapsedFn, setCollapsedFn) {
-    var startY = null;
-    handleEl.addEventListener('pointerdown', function(e) { startY = e.clientY; });
+    var startY = null, dragged = false;
+    handleEl.addEventListener('pointerdown', function(e) { startY = e.clientY; dragged = false; });
+    handleEl.addEventListener('pointermove', function(e) {
+      if (startY == null) return;
+      if (Math.abs(e.clientY - startY) > 12) dragged = true;
+    });
     handleEl.addEventListener('pointerup', function(e) {
       if (startY == null) return;
-      // Si no frenamos el "click" fantasma que el navegador dispara después
-      // del toque, cae sobre el campo que recién quedó al descubierto (al
-      // expandir) y lo abre para editar en vez de sólo desplegar el panel.
-      e.preventDefault();
       var deltaY = e.clientY - startY;
       startY = null;
-      if (Math.abs(deltaY) < 12) { setCollapsedFn(!isCollapsedFn()); return; }
+      if (!dragged) return; // toque simple: lo maneja el 'click' de abajo
+      // Fue un arrastre de verdad: frenamos el "click" fantasma que el
+      // navegador dispara después del toque (si no, cae sobre el campo que
+      // recién quedó al descubierto al expandir y lo abre para editar).
+      e.preventDefault();
       setCollapsedFn(deltaY > 0); // arriba = expandir, abajo = colapsar
     });
-    handleEl.addEventListener('pointercancel', function() { startY = null; });
+    handleEl.addEventListener('pointercancel', function() { startY = null; dragged = false; });
+    handleEl.addEventListener('click', function() {
+      if (dragged) { dragged = false; return; } // ya lo resolvió el arrastre de arriba
+      setCollapsedFn(!isCollapsedFn());
+    });
   }
 
   function setResultsCollapsed(collapsed) {
