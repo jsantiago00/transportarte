@@ -190,6 +190,28 @@
   .field input[type=text].armed { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(47,125,214,0.22); }
   .input-icon-wrap { position: relative; }
   .input-icon-wrap input[type=text] { padding-right: 38px; }
+  .input-icon-wrap-double input[type=text] { padding-right: 66px; }
+  .input-clear-btn {
+    position: absolute;
+    top: 50%;
+    right: 10px;
+    transform: translateY(-50%);
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--muted);
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .input-clear-btn:hover, .input-clear-btn:active { background: var(--surface-2); color: var(--text); }
+  .input-icon-wrap-double .input-clear-btn { right: 36px; }
   .inline-locate-dot {
     position: absolute;
     top: 50%;
@@ -309,10 +331,10 @@
   .sheet-summary span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sheet-summary { touch-action: none; }
   .sheet-handle {
-    font-size: 13px;
+    font-size: 15px;
     line-height: 1;
-    color: var(--muted);
-    opacity: 0.7;
+    color: var(--text);
+    font-weight: 900;
     flex-shrink: 0;
   }
   #sheetBody { flex-shrink: 0; padding-bottom: 4px; }
@@ -517,8 +539,9 @@
         <label>Origen</label>
         <button class="save-place-btn" id="saveOriginBtn" type="button" hidden>💾 Guardar</button>
       </div>
-      <div class="input-icon-wrap">
+      <div class="input-icon-wrap input-icon-wrap-double">
         <input type="text" id="originSearch" placeholder="Buscá una dirección, o tocá el mapa" autocomplete="off">
+        <button class="input-clear-btn" id="clearOrigin" type="button" hidden title="Borrar" aria-label="Borrar dirección de origen">✕</button>
         <button class="inline-locate-dot" id="useMyLocation" type="button" title="Usar mi ubicación actual" aria-label="Usar mi ubicación actual"></button>
       </div>
       <div class="suggest-list" id="originSuggest" hidden></div>
@@ -531,7 +554,10 @@
         <label>Destino</label>
         <button class="save-place-btn" id="saveDestBtn" type="button" hidden>💾 Guardar</button>
       </div>
-      <input type="text" id="destSearch" placeholder="Buscá una dirección, o tocá el mapa" autocomplete="off">
+      <div class="input-icon-wrap">
+        <input type="text" id="destSearch" placeholder="Buscá una dirección, o tocá el mapa" autocomplete="off">
+        <button class="input-clear-btn" id="clearDest" type="button" hidden title="Borrar" aria-label="Borrar dirección de destino">✕</button>
+      </div>
       <div class="suggest-list" id="destSuggest" hidden></div>
     </div>
 
@@ -641,14 +667,6 @@
       'data-lat="' + stop.lat + '" data-lon="' + stop.lon + '">Ver en el mapa</button>';
   }
 
-  function stopLocationHtml(stop) {
-    var walkLine = (typeof stop.walkMeters === 'number') ? (' · ~' + stop.walkMeters + ' m caminando') : '';
-    return '<p style="font-size:13.5px;font-weight:700;margin:0 0 2px;">' + escapeHtml(stop.address || stop.name) + '</p>' +
-      '<p style="font-size:11.5px;margin:0 0 6px;color:var(--muted);">Parada ' + escapeHtml(stop.name) + walkLine +
-      viewOnMapButton(stop) +
-      '</p>';
-  }
-
   function walkMins(meters) { return Math.max(1, Math.round(meters / 70)); }
 
   function whenLabel(mins) { return mins <= 0 ? 'Ahora' : 'Pasa en ' + mins + ' min'; }
@@ -710,18 +728,6 @@
     '</div>';
   }
 
-  function arrivalsHtml(arrivals) {
-    if (!arrivals.length) return '<p style="font-size:12.5px;color:var(--muted);margin:4px 0 0;">No hay llegadas previstas por ahora.</p>';
-    var now = Date.now();
-    var rows = arrivals.slice(0, 5).map(function(a) {
-      var t = a.predictedArrivalTime || a.scheduledArrivalTime;
-      var mins = Math.round((t - now) / 60000);
-      var route = a.routeShortName || a.routeId || '';
-      return '<div class="arrival"><div class="journey-head"><span class="step-route">' + escapeHtml(route + ' · ' + (a.tripHeadsign || '')) + '</span><span class="journey-when" data-when="' + t + '">' + whenLabel(mins) + '</span></div></div>';
-    }).join('');
-    return rows;
-  }
-
   function journeyWhenGroup(c) {
     var now = Date.now();
     var departMins = Math.round((c.originTime - now) / 60000);
@@ -767,6 +773,37 @@
           journeyStep('Bajás', 'alight', '', { label: transferLabel, stop: c.transferStop }, 'Llegás ~' + fmtClockTime(c.transferArrival)) +
           transferWalkStep +
           journeyStep('Subís', 'board', c.leg2Route + ' · ' + c.leg2Headsign, null, 'Sale ~' + fmtClockTime(c.transferBoard)) +
+          journeyStep('Bajás', 'alight', '', { label: c.destStop.address || c.destStop.name, stop: c.destStop }, (hasDestWalk ? 'Baja ~' : 'Llegás ~') + fmtClockTime(c.destTime)) +
+          destWalkStep(c) +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  // Como último recurso, cuando ni una línea directa ni una combinación con
+  // un solo transbordo dieron resultado - dos transbordos es incómodo, así
+  // que se marca claramente como la opción menos conveniente.
+  function threeLegCandidatesHtml(candidates) {
+    return candidates.map(function(c, i) {
+      var transfer1Label = c.transfer1Stop ? (c.transfer1Stop.address || c.transfer1Stop.name) : 'la parada de trasbordo';
+      var transfer2Label = c.transfer2Stop ? (c.transfer2Stop.address || c.transfer2Stop.name) : 'la parada de trasbordo';
+      var hasDestWalk = c.destWalkMeters >= 30;
+      var transferWalkStep = '';
+      if (c.walkMeters > 0 && c.boardStop) {
+        transferWalkStep = journeyStep('Caminás', 'walk', '', { label: c.boardStop.address || c.boardStop.name, stop: c.boardStop }, '~' + c.walkMeters + ' m (unos ' + walkMins(c.walkMeters) + ' min)');
+      }
+      return '<div class="arrival ' + (i === 0 ? 'recommended' : 'also-good') + '" data-idx="' + i + '">' +
+        '<div class="journey-head"><span class="journey-title-group"><span class="journey-title">' + escapeHtml(c.leg1Route) + ' · 2 transbordos</span>' + (i === 0 ? recommendedBadge() : '') + '</span>' + journeyWhenGroup(c) + '</div>' +
+        '<p class="faster-alt-note">⚠️ Es la única forma que encontramos: implica dos transbordos</p>' +
+        journeyToggleButton() +
+        '<div class="journey-details" hidden>' +
+          originWalkStep(c) +
+          journeyStep('Subís', 'board', c.leg1Headsign, { label: c.originStop.address || c.originStop.name, stop: c.originStop }, 'Sale a las ' + fmtClockTime(c.originTime)) +
+          journeyStep('Bajás', 'alight', '', { label: transfer1Label, stop: c.transfer1Stop }, 'Llegás ~' + fmtClockTime(c.transfer1Arrival)) +
+          journeyStep('Subís', 'board', c.leg2Route + ' · ' + c.leg2Headsign, null, 'Sale ~' + fmtClockTime(c.leg2Board)) +
+          journeyStep('Bajás', 'alight', '', { label: transfer2Label, stop: c.transfer2Stop }, 'Llegás ~' + fmtClockTime(c.transfer2Arrival)) +
+          transferWalkStep +
+          journeyStep('Subís', 'board', c.leg3Route + ' · ' + c.leg3Headsign, null, 'Sale ~' + fmtClockTime(c.leg3Board)) +
           journeyStep('Bajás', 'alight', '', { label: c.destStop.address || c.destStop.name, stop: c.destStop }, (hasDestWalk ? 'Baja ~' : 'Llegás ~') + fmtClockTime(c.destTime)) +
           destWalkStep(c) +
         '</div>' +
@@ -855,17 +892,19 @@
       highlightCandidate(0);
       return;
     }
+    if (data.twoTransfer && data.twoTransfer.length) {
+      lastCandidates = data.twoTransfer;
+      lastCandidateType = 'twoTransfer';
+      showResultsSummary('Con 2 transbordos, última opción (' + data.twoTransfer.length + ') · tocá una para ver el recorrido');
+      el.innerHTML = '<div class="transit-result">' + threeLegCandidatesHtml(data.twoTransfer) + '</div>';
+      highlightCandidate(0);
+      return;
+    }
     lastCandidates = [];
     lastCandidateType = null;
     clearRouteLines();
-    showResultsSummary('Paradas cercanas');
-    var fb = data.fallback || {};
-    var html = '<div class="section-title">Cerca de donde salís</div>' +
-      '<div class="card">' + (fb.originStop ? stopLocationHtml(fb.originStop) + arrivalsHtml(fb.originArrivals || []) : '<p style="font-size:13px;color:var(--muted);">No se encontraron paradas cercanas.</p>') + '</div>' +
-      '<p style="font-size:12px;color:var(--muted);margin:4px 0 12px;">No encontramos ni una línea directa ni una combinación con transbordo entre las paradas cercanas.</p>' +
-      '<div class="section-title">Cerca de a dónde vas</div>' +
-      '<div class="card">' + (fb.destStop ? stopLocationHtml(fb.destStop) : '<p style="font-size:13px;color:var(--muted);">No se encontró una parada cercana.</p>') + '</div>';
-    el.innerHTML = html;
+    hideResultsSummary();
+    el.innerHTML = '<p class="empty-hint">No encontramos ninguna combinación de colectivo para este viaje.</p>';
   }
 
   function fetchGeocode(q) {
@@ -1059,7 +1098,18 @@
   }
 
   var lastCandidates = [];
-  var lastCandidateType = null; // 'direct' | 'transfer' | null
+  var lastCandidateType = null; // 'direct' | 'transfer' | 'twoTransfer' | null
+
+  // Borra los resultados de una búsqueda anterior (lista, resaltado en el
+  // mapa y resumen) - se llama cada vez que el origen o el destino cambian,
+  // para no dejar en pantalla un viaje que ya no corresponde.
+  function clearSearchResults() {
+    lastCandidates = [];
+    lastCandidateType = null;
+    clearRouteLines();
+    hideResultsSummary();
+    document.getElementById('resultsArea').innerHTML = '';
+  }
 
   function addRouteLayer(layer) {
     layer.addTo(leafletMap);
@@ -1205,7 +1255,9 @@
   }
 
   function shapeIdsFor(c) {
-    return lastCandidateType === 'direct' ? [c.shapeId] : [c.leg1ShapeId, c.leg2ShapeId];
+    if (lastCandidateType === 'direct') return [c.shapeId];
+    if (lastCandidateType === 'transfer') return [c.leg1ShapeId, c.leg2ShapeId];
+    return [c.leg1ShapeId, c.leg2ShapeId, c.leg3ShapeId]; // twoTransfer
   }
 
   function drawStopsAndWalks(c, boundsPoints) {
@@ -1220,6 +1272,16 @@
       } else {
         // El transbordo es en la misma parada: un solo pin para bajar y subir.
         drawStopMarker(c.transferStop, '#6b4fa0', '⇄', boundsPoints);
+      }
+    } else if (lastCandidateType === 'twoTransfer') {
+      // El primer transbordo siempre es en la misma parada (bajás y subís ahí).
+      drawStopMarker(c.transfer1Stop, '#6b4fa0', '⇄', boundsPoints);
+      if (c.boardStop) {
+        drawStopMarker(c.transfer2Stop, '#123f7a', 'B', boundsPoints);
+        drawStopMarker(c.boardStop, '#2f7dd6', 'S', boundsPoints);
+        tasks.push(drawWalkLine(c.transfer2Stop, c.boardStop, boundsPoints));
+      } else {
+        drawStopMarker(c.transfer2Stop, '#6b4fa0', '⇄', boundsPoints);
       }
     }
     drawStopMarker(c.destStop, '#123f7a', 'B', boundsPoints);
@@ -1325,6 +1387,7 @@
   // punto como al llegar la dirección "linda" de la geocodificación inversa).
   function setFieldValue(target, text) {
     document.getElementById(target === 'origin' ? 'originSearch' : 'destSearch').value = text;
+    document.getElementById(target === 'origin' ? 'clearOrigin' : 'clearDest').hidden = !text;
     updateSheetSummary();
   }
 
@@ -1343,7 +1406,7 @@
       document.getElementById('saveDestBtn').hidden = true;
     }
     updateSearchEnabled();
-    clearRouteLines();
+    clearSearchResults();
     // Si falta el origen, siempre se pide primero - así, borrar destino
     // después de haber borrado origen no deja "trabado" armado el destino.
     armTarget(state.origin ? (state.dest ? null : 'dest') : 'origin');
@@ -1407,6 +1470,7 @@
     placeMarker('origin', coords);
     updateSearchEnabled();
     document.getElementById('saveOriginBtn').hidden = false;
+    clearSearchResults();
     onPointSet('origin', skipZoom);
   }
   function setDest(coords, label) {
@@ -1416,6 +1480,7 @@
     updateSearchEnabled();
     document.getElementById('saveDestBtn').hidden = false;
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ lat: coords.lat, lon: coords.lon })); } catch (e) {}
+    clearSearchResults();
     onPointSet('dest');
   }
 
@@ -1494,11 +1559,7 @@
     var oldDestLabel = document.getElementById('destSearch').value;
     if (oldDest) setOrigin(oldDest, oldDestLabel); else clearPoint('origin');
     if (oldOrigin) setDest(oldOrigin, oldOriginLabel); else clearPoint('dest');
-    clearRouteLines();
-    lastCandidates = [];
-    lastCandidateType = null;
-    hideResultsSummary();
-    document.getElementById('resultsArea').innerHTML = '';
+    clearSearchResults();
   });
 
   // Lista de lugares guardados dentro del mismo desplegable de sugerencias -
@@ -1530,9 +1591,10 @@
     });
   }
 
-  function setupAddressSearch(inputId, suggestId, onPick) {
+  function setupAddressSearch(inputId, suggestId, clearBtnId, onPick) {
     var input = document.getElementById(inputId);
     var suggestBox = document.getElementById(suggestId);
+    var clearBtn = document.getElementById(clearBtnId);
     var timer = null;
     var requestId = 0;
 
@@ -1540,7 +1602,11 @@
       if (!input.value.trim()) renderSavedPlaces(suggestBox, onPick);
     });
 
+    // Escribir una dirección nueva significa que el usuario está armando otro
+    // viaje - los resultados de la búsqueda anterior ya no corresponden.
     input.addEventListener('input', function() {
+      clearBtn.hidden = !input.value;
+      clearSearchResults();
       var q = input.value.trim();
       if (timer) clearTimeout(timer);
       if (q.length < 3) {
@@ -1580,10 +1646,16 @@
     document.addEventListener('click', function(e) {
       if (e.target !== input && !suggestBox.contains(e.target)) suggestBox.hidden = true;
     });
+
+    clearBtn.addEventListener('click', function() {
+      clearPoint(inputId === 'originSearch' ? 'origin' : 'dest');
+      suggestBox.hidden = true;
+      input.focus();
+    });
   }
 
-  setupAddressSearch('originSearch', 'originSuggest', function(coords, label) { setOrigin(coords, label); });
-  setupAddressSearch('destSearch', 'destSuggest', function(coords, label) { setDest(coords, label); });
+  setupAddressSearch('originSearch', 'originSuggest', 'clearOrigin', function(coords, label) { setOrigin(coords, label); });
+  setupAddressSearch('destSearch', 'destSuggest', 'clearDest', function(coords, label) { setDest(coords, label); });
 
   document.getElementById('saveOriginBtn').addEventListener('click', function() {
     if (!state.origin) return;

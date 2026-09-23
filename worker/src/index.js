@@ -460,6 +460,136 @@ function findTwoLegCandidates(reachable, coverage, limit) {
   return candidates.slice(0, limit || 5);
 }
 
+// Búsqueda de un SEGUNDO trasbordo, sólo como último recurso cuando no hubo
+// ni línea directa ni combinación con un solo trasbordo. Toma las paradas ya
+// alcanzables por buildReachableMap (fin del primer tramo) y, desde ahí,
+// busca a qué otras paradas se puede llegar subiendo a un segundo colectivo
+// distinto. Limitamos fuerte cuántas paradas y viajes se prueban (a
+// diferencia del resto de las búsquedas) porque esto sólo corre cuando ya
+// falló todo lo demás, y Cloudflare corta la invocación si se pasa de
+// peticiones salientes.
+function buildLeg2ReachableMap(reachable, limitStops, perStopLimit, tripCache) {
+  const entries = Object.keys(reachable)
+    .map((code) => Object.assign({ code }, reachable[code]))
+    .filter((r) => r.stopRef && r.stopRef.id)
+    .sort((a, b) => a.arrivalTime - b.arrivalTime)
+    .slice(0, limitStops);
+
+  return Promise.all(entries.map((r) =>
+    fetchArrivals(r.stopRef.id)
+      .then((data) => ({ reach: r, arrivals: (data.entry && data.entry.arrivalsAndDepartures) || [] }))
+      .catch(() => ({ reach: r, arrivals: [] }))
+  )).then((stopResults) => {
+    const toProbe = [];
+    stopResults.forEach((sr) => {
+      const cutoff = sr.reach.arrivalTime + TRANSFER_BUFFER_MS;
+      const sorted = sr.arrivals
+        .filter((a) => (a.predictedArrivalTime || a.scheduledArrivalTime) >= cutoff)
+        .sort((a, b) => (a.predictedArrivalTime || a.scheduledArrivalTime) - (b.predictedArrivalTime || b.scheduledArrivalTime));
+      let taken = 0;
+      for (let i = 0; i < sorted.length && taken < perStopLimit; i++) {
+        const a = sorted[i];
+        // Si es la misma línea que ya veníamos, no es un trasbordo real.
+        if ((a.routeShortName || a.routeId) === sr.reach.route) continue;
+        toProbe.push({ reach: sr.reach, arrival: a });
+        taken++;
+      }
+    });
+
+    return Promise.all(toProbe.map((item) =>
+      fetchTripDetails(item.arrival.tripId, tripCache).then((details) => ({ item, details }))
+    )).then((results) => {
+      const reachable2 = {};
+      results.forEach((r) => {
+        const { stopTimes, codeById, refByCode } = r.details;
+        if (!stopTimes.length) return;
+        const boardCode = r.item.reach.code;
+        let boardIndex = -1;
+        for (let i = 0; i < stopTimes.length; i++) {
+          if (codeById[stopTimes[i].stopId] === boardCode) { boardIndex = i; break; }
+        }
+        if (boardIndex === -1) return;
+        const boardEntry = stopTimes[boardIndex];
+        const a = r.item.arrival;
+        const reportedPredicted = a.predictedArrivalTime || a.scheduledArrivalTime;
+        for (let j = boardIndex + 1; j < stopTimes.length; j++) {
+          const code = codeById[stopTimes[j].stopId];
+          if (!code) continue;
+          const arrivalTime = reportedPredicted + (stopTimes[j].arrivalTime - boardEntry.arrivalTime) * 1000;
+          if (!reachable2[code] || arrivalTime < reachable2[code].arrivalTime) {
+            reachable2[code] = {
+              stopRef: refByCode[code],
+              arrivalTime,
+              route: a.routeShortName || a.routeId || "",
+              headsign: a.tripHeadsign || "",
+              shapeId: a.shapeId || null,
+              leg1: r.item.reach,
+              boardTime: reportedPredicted,
+            };
+          }
+        }
+      });
+      return reachable2;
+    });
+  });
+}
+
+// Igual que findTwoLegCandidates, pero uniendo el segundo trasbordo
+// (reachable2) con la cobertura del destino, para armar un viaje de 3 tramos.
+function findThreeLegCandidates(reachable2, coverage, limit) {
+  const coverageList = Object.keys(coverage).map((code) => Object.assign({ code }, coverage[code]));
+  let candidates = [];
+
+  Object.keys(reachable2).forEach((code) => {
+    const reach = reachable2[code];
+    let best = null;
+
+    coverageList.forEach((cov) => {
+      if (cov.route === reach.route) return; // mismo colectivo: no es un trasbordo real
+      let walkMeters = 0;
+      if (cov.code !== code) {
+        const rs = reach.stopRef, cs = cov.stopRef;
+        if (!rs || !cs || rs.lat == null || cs.lat == null) return;
+        walkMeters = haversine(parseFloat(rs.lat), parseFloat(rs.lon), parseFloat(cs.lat), parseFloat(cs.lon)) * 1000;
+        if (walkMeters > MAX_WALK_METERS) return;
+      }
+      const walkMs = (walkMeters / WALK_SPEED_M_PER_MIN) * 60000;
+      if (cov.boardTime < reach.arrivalTime + walkMs + TRANSFER_BUFFER_MS) return;
+      if (!best || cov.totalArrival < best.cov.totalArrival) best = { cov, walkMeters };
+    });
+
+    if (best) {
+      const leg1 = reach.leg1;
+      const originWalkMeters = leg1.originStop.walkMeters || 0;
+      const transferWalkMeters = Math.round(best.walkMeters);
+      const destWalkMeters = (best.cov.destStop && best.cov.destStop.walkMeters) || 0;
+      const destWalkMs = (destWalkMeters / WALK_SPEED_M_PER_MIN) * 60000;
+      candidates.push({
+        leg1Route: leg1.route, leg1Headsign: leg1.headsign, leg1ShapeId: leg1.shapeId,
+        originStop: leg1.originStop, originTime: leg1.originTime, originWalkMeters,
+        transfer1Stop: leg1.stopRef, transfer1Arrival: leg1.arrivalTime,
+        leg2Route: reach.route, leg2Headsign: reach.headsign, leg2ShapeId: reach.shapeId, leg2Board: reach.boardTime,
+        transfer2Stop: reach.stopRef, transfer2Arrival: reach.arrivalTime,
+        walkMeters: transferWalkMeters,
+        boardStop: transferWalkMeters > 0 ? best.cov.stopRef : null,
+        leg3Board: best.cov.boardTime,
+        leg3Route: best.cov.route, leg3Headsign: best.cov.headsign, leg3ShapeId: best.cov.shapeId,
+        destStop: best.cov.destStop, destTime: best.cov.destTime, destWalkMeters,
+        arrivalTime: best.cov.destTime + destWalkMs,
+        totalWalkMeters: originWalkMeters + transferWalkMeters + destWalkMeters,
+      });
+    }
+  });
+
+  const now = Date.now();
+  candidates = candidates.filter((c) => {
+    const originWalkMs = (c.originWalkMeters / WALK_SPEED_M_PER_MIN) * 60000;
+    return c.originTime >= now + originWalkMs - 30000;
+  });
+  candidates.sort((a, b) => (a.arrivalTime - b.arrivalTime) || (a.totalWalkMeters - b.totalWalkMeters));
+  return candidates.slice(0, limit || 3);
+}
+
 // Entre las opciones que llegan casi al mismo tiempo (hasta 5 min de
 // diferencia contra la más rápida), preferimos la que menos hay que caminar
 // en vez de la que llega unos minutos antes a cambio de más caminata. La
@@ -485,7 +615,8 @@ function preferLessWalking(candidates) {
 
 // ---------- Endpoint /route.json ----------
 // GET /route.json?fromLat=..&fromLon=..&toLat=..&toLon=..
-// Devuelve { direct: [...], transfer: [...], fallback: {...} | null }
+// Devuelve { direct: [...], transfer: [...], twoTransfer: [...] } - twoTransfer
+// (hasta 2 trasbordos) sólo trae algo cuando las otras dos listas vinieron vacías.
 async function handleRoute(url) {
   const fromLat = parseFloat(url.searchParams.get("fromLat"));
   const fromLon = parseFloat(url.searchParams.get("fromLon"));
@@ -502,7 +633,7 @@ async function handleRoute(url) {
   if (directMeters < MIN_TRIP_METERS) {
     return json({
       code: 200,
-      data: { direct: [], transfer: [], fallback: null, tooClose: true, distanceMeters: Math.round(directMeters) },
+      data: { direct: [], transfer: [], twoTransfer: [], tooClose: true, distanceMeters: Math.round(directMeters) },
     });
   }
 
@@ -528,7 +659,7 @@ async function handleRoute(url) {
   const direct = await findDirectCandidates(originResults, destStops, 5, tripCache);
 
   if (direct.length) {
-    return json({ code: 200, data: { direct: preferLessWalking(direct), transfer: [], fallback: null } });
+    return json({ code: 200, data: { direct: preferLessWalking(direct), transfer: [], twoTransfer: [] } });
   }
 
   const destResults = await buildStopArrivals(destStops);
@@ -541,20 +672,18 @@ async function handleRoute(url) {
   const transfer = findTwoLegCandidates(reachable, coverage, 5);
 
   if (transfer.length) {
-    return json({ code: 200, data: { direct: [], transfer: preferLessWalking(transfer), fallback: null } });
+    return json({ code: 200, data: { direct: [], transfer: preferLessWalking(transfer), twoTransfer: [] } });
   }
+
+  // Último recurso: ni una línea directa ni una combinación con un solo
+  // trasbordo. Antes de rendirnos, probamos con hasta dos trasbordos - es
+  // una opción incómoda, así que el frontend la marca como tal.
+  const reachable2 = await buildLeg2ReachableMap(reachable, 5, 2, tripCache);
+  const twoTransfer = findThreeLegCandidates(reachable2, coverage, 3);
 
   return json({
     code: 200,
-    data: {
-      direct: [],
-      transfer: [],
-      fallback: {
-        originStop: originResults[0] ? originResults[0].stop : null,
-        originArrivals: originResults[0] ? originResults[0].arrivals : [],
-        destStop: destStops[0] || null,
-      },
-    },
+    data: { direct: [], transfer: [], twoTransfer: preferLessWalking(twoTransfer) },
   });
 }
 
