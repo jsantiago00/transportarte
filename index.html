@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>TransportArte</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.85em%22 font-size=%2290%22>🚌</text></svg>">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#2f7dd6">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="TransportArte">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -182,21 +188,54 @@
     color: var(--text);
   }
   .field input[type=text].armed { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(47,125,214,0.22); }
-  .locate-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
+  .input-icon-wrap { position: relative; }
+  .input-icon-wrap input[type=text] { padding-right: 38px; }
+  .inline-locate-dot {
+    position: absolute;
+    top: 50%;
+    right: 10px;
+    transform: translateY(-50%);
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border-radius: 50%;
+    background: var(--primary);
+    border: 3px solid var(--surface);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    cursor: pointer;
+  }
+  .inline-locate-dot:disabled { opacity: 0.6; cursor: default; }
+  .inline-locate-dot.loading { animation: locationPulse 1s ease-out infinite; }
+  .swap-btn {
+    display: block;
+    width: 34px;
+    height: 34px;
+    margin: -2px auto 6px;
+    border-radius: 50%;
     background: var(--surface-2);
     border: 1px solid var(--border);
-    color: var(--primary-dark);
-    padding: 6px 11px;
-    border-radius: 999px;
-    font-size: 11.5px;
+    color: var(--primary);
+    font-size: 16px;
     font-weight: 700;
     cursor: pointer;
-    margin: -4px 0 12px;
   }
-  .locate-btn:disabled { opacity: 0.6; cursor: default; }
+  .locate-me-btn {
+    position: fixed;
+    right: 12px;
+    bottom: 92px;
+    z-index: 32;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+    font-size: 17px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
   .btn {
     border: none;
     padding: 11px 14px;
@@ -449,6 +488,7 @@
 
 <span class="brand-tiny">Transport<span class="brand-arte">Arte</span></span>
 <button class="theme-toggle-btn" id="themeToggleBtn" type="button">🌙</button>
+<button class="locate-me-btn" id="locateMeBtn" type="button" title="Centrar en mi ubicación" aria-label="Centrar en mi ubicación">🎯</button>
 
 <div class="bottom-card" id="bottomCard">
   <button class="sheet-summary" id="sheetSummary" type="button">
@@ -461,10 +501,14 @@
         <label>Origen</label>
         <button class="save-place-btn" id="saveOriginBtn" type="button" hidden>💾 Guardar</button>
       </div>
-      <input type="text" id="originSearch" placeholder="Buscá una dirección, o tocá el mapa" autocomplete="off">
+      <div class="input-icon-wrap">
+        <input type="text" id="originSearch" placeholder="Buscá una dirección, o tocá el mapa" autocomplete="off">
+        <button class="inline-locate-dot" id="useMyLocation" type="button" title="Usar mi ubicación actual" aria-label="Usar mi ubicación actual"></button>
+      </div>
       <div class="suggest-list" id="originSuggest" hidden></div>
     </div>
-    <button class="locate-btn" id="useMyLocation" type="button">📍 Mi ubicación actual</button>
+
+    <button class="swap-btn" id="swapBtn" type="button" title="Intercambiar origen y destino" aria-label="Intercambiar origen y destino">⇅</button>
 
     <div class="field">
       <div class="field-label-row">
@@ -589,6 +633,19 @@
 
   function whenLabel(mins) { return mins <= 0 ? 'Ahora' : 'Pasa en ' + mins + ' min'; }
 
+  // Los "Pasa en X min" quedan fijos en el momento en que se dibujan -
+  // sin esto, un resultado que mirás 5 minutos después seguiría diciendo
+  // lo mismo que cuando apareció. Refresca cualquier badge visible (en la
+  // lista de resultados o en el popup de una parada) cada 30s.
+  function refreshWhenLabels() {
+    var now = Date.now();
+    document.querySelectorAll('.journey-when[data-when]').forEach(function(el) {
+      var mins = Math.round((parseInt(el.getAttribute('data-when'), 10) - now) / 60000);
+      el.textContent = whenLabel(mins);
+    });
+  }
+  setInterval(refreshWhenLabels, 30000);
+
   function recommendedBadge() { return '<span class="recommended-badge">★ Recomendado</span>'; }
 
   function journeyToggleButton() {
@@ -636,7 +693,7 @@
       var t = a.predictedArrivalTime || a.scheduledArrivalTime;
       var mins = Math.round((t - now) / 60000);
       var route = a.routeShortName || a.routeId || '';
-      return '<div class="arrival"><div class="journey-head"><span class="step-route">' + escapeHtml(route + ' · ' + (a.tripHeadsign || '')) + '</span><span class="journey-when">' + whenLabel(mins) + '</span></div></div>';
+      return '<div class="arrival"><div class="journey-head"><span class="step-route">' + escapeHtml(route + ' · ' + (a.tripHeadsign || '')) + '</span><span class="journey-when" data-when="' + t + '">' + whenLabel(mins) + '</span></div></div>';
     }).join('');
     return rows;
   }
@@ -647,7 +704,7 @@
       var mins = Math.round((c.originTime - now) / 60000);
       var hasDestWalk = c.destWalkMeters >= 30;
       return '<div class="arrival ' + (i === 0 ? 'recommended' : 'also-good') + '" data-idx="' + i + '">' +
-        '<div class="journey-head"><span class="journey-title-group"><span class="journey-title">' + escapeHtml(c.route + ' · ' + c.headsign) + '</span>' + (i === 0 ? recommendedBadge() : '') + '</span><span class="journey-when">' + whenLabel(mins) + '</span></div>' +
+        '<div class="journey-head"><span class="journey-title-group"><span class="journey-title">' + escapeHtml(c.route + ' · ' + c.headsign) + '</span>' + (i === 0 ? recommendedBadge() : '') + '</span><span class="journey-when" data-when="' + c.originTime + '">' + whenLabel(mins) + '</span></div>' +
         fasterAlternativeNote(c) +
         journeyToggleButton() +
         '<div class="journey-details" hidden>' +
@@ -671,7 +728,7 @@
         transferWalkStep = journeyStep('Caminás', 'walk', '', { label: c.boardStop.address || c.boardStop.name, stop: c.boardStop }, '~' + c.walkMeters + ' m (unos ' + walkMins(c.walkMeters) + ' min)');
       }
       return '<div class="arrival ' + (i === 0 ? 'recommended' : 'also-good') + '" data-idx="' + i + '">' +
-        '<div class="journey-head"><span class="journey-title-group"><span class="journey-title">' + escapeHtml(c.leg1Route) + ' · con transbordo</span>' + (i === 0 ? recommendedBadge() : '') + '</span><span class="journey-when">' + whenLabel(mins) + '</span></div>' +
+        '<div class="journey-head"><span class="journey-title-group"><span class="journey-title">' + escapeHtml(c.leg1Route) + ' · con transbordo</span>' + (i === 0 ? recommendedBadge() : '') + '</span><span class="journey-when" data-when="' + c.originTime + '">' + whenLabel(mins) + '</span></div>' +
         fasterAlternativeNote(c) +
         journeyToggleButton() +
         '<div class="journey-details" hidden>' +
@@ -884,7 +941,7 @@
       var t = a.predictedArrivalTime || a.scheduledArrivalTime;
       var mins = Math.round((t - now) / 60000);
       var route = a.routeShortName || a.routeId || '';
-      return '<div class="arrival" data-shape="' + escapeHtml(a.shapeId || '') + '"><div class="journey-head"><span class="step-route">' + escapeHtml(route + ' · ' + (a.tripHeadsign || '')) + '</span><span class="journey-when">' + whenLabel(mins) + '</span></div></div>';
+      return '<div class="arrival" data-shape="' + escapeHtml(a.shapeId || '') + '"><div class="journey-head"><span class="step-route">' + escapeHtml(route + ' · ' + (a.tripHeadsign || '')) + '</span><span class="journey-when" data-when="' + t + '">' + whenLabel(mins) + '</span></div></div>';
     }).join('');
   }
 
@@ -1339,15 +1396,46 @@
   document.getElementById('useMyLocation').addEventListener('click', function() {
     var btn = this;
     btn.disabled = true;
-    btn.textContent = 'Ubicándote...';
+    btn.classList.add('loading');
     getCurrentPosition().then(function(pos) {
       setOrigin(pos, 'Tu ubicación');
     }).catch(function(err) {
       toast('No pudimos usar tu ubicación (' + err.message + ').');
     }).then(function() {
       btn.disabled = false;
-      btn.textContent = '📍 Mi ubicación actual';
+      btn.classList.remove('loading');
     });
+  });
+
+  // Centra y acerca el mapa a donde estás ahora, sin tocar origen/destino.
+  document.getElementById('locateMeBtn').addEventListener('click', function() {
+    if (myLocationMarker) {
+      leafletMap.setView(myLocationMarker.getLatLng(), 16);
+      return;
+    }
+    var btn = this;
+    btn.disabled = true;
+    getCurrentPosition().then(function(pos) {
+      leafletMap.setView([pos.lat, pos.lon], 16);
+    }).catch(function(err) {
+      toast('No pudimos acceder a tu ubicación (' + err.message + ').');
+    }).then(function() {
+      btn.disabled = false;
+    });
+  });
+
+  // Intercambia origen y destino (puntos, pines y texto de los campos).
+  document.getElementById('swapBtn').addEventListener('click', function() {
+    var oldOrigin = state.origin, oldDest = state.dest;
+    var oldOriginLabel = document.getElementById('originSearch').value;
+    var oldDestLabel = document.getElementById('destSearch').value;
+    if (oldDest) setOrigin(oldDest, oldDestLabel); else clearPoint('origin');
+    if (oldOrigin) setDest(oldOrigin, oldOriginLabel); else clearPoint('dest');
+    clearRouteLines();
+    lastCandidates = [];
+    lastCandidateType = null;
+    hideResultsSummary();
+    document.getElementById('resultsArea').innerHTML = '';
   });
 
   // Lista de lugares guardados dentro del mismo desplegable de sugerencias -
@@ -1510,6 +1598,15 @@
       setTimeout(function() { document.getElementById('searchBtn').click(); }, 50);
     }
   })();
+
+  // PWA instalable: el manifest + este service worker (aunque sea mínimo)
+  // son lo que hace falta para que el navegador ofrezca "Agregar a la
+  // pantalla de inicio". No cachea datos en vivo, sólo el cascarón de la app.
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function() {
+      navigator.serviceWorker.register('sw.js').catch(function() { /* sin soporte o falló: la app sigue funcionando igual */ });
+    });
+  }
 })();
 </script>
 </body>
