@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-title" content="TransportArte">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Roboto:wght@400;500;700;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <style>
   :root {
@@ -82,7 +82,7 @@
   body {
     background: var(--bg);
     color: var(--text);
-    font-family: 'Nunito', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: 'Roboto', -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
     overflow: hidden;
     overscroll-behavior-y: contain;
     -webkit-text-size-adjust: 100%;
@@ -222,7 +222,7 @@
   .locate-me-btn {
     position: fixed;
     right: 12px;
-    bottom: 92px;
+    bottom: 150px; /* valor inicial: la posición real la fija repositionLocateBtn() */
     z-index: 32;
     width: 38px;
     height: 38px;
@@ -1423,6 +1423,22 @@
       btn.disabled = false;
     });
   });
+
+  // El botón de foco queda pegado justo arriba del panel de origen/destino
+  // (colapsado o expandido, con o sin resultados) en vez de a una altura
+  // fija - ResizeObserver avisa apenas el panel cambia de tamaño por
+  // cualquier motivo, sin tener que engancharse a cada toggle a mano.
+  (function keepLocateBtnAboveSheet() {
+    var btn = document.getElementById('locateMeBtn');
+    var card = document.getElementById('bottomCard');
+    function reposition() {
+      var rect = card.getBoundingClientRect();
+      btn.style.bottom = (window.innerHeight - rect.top + 10) + 'px';
+    }
+    if (window.ResizeObserver) new ResizeObserver(reposition).observe(card);
+    else window.addEventListener('resize', reposition);
+    reposition();
+  })();
 
   // Intercambia origen y destino (puntos, pines y texto de los campos).
   document.getElementById('swapBtn').addEventListener('click', function() {
