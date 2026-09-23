@@ -401,9 +401,11 @@
     color: var(--warning);
     margin: -2px 0 6px;
   }
-  .journey-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; gap: 8px; }
-  .journey-head .journey-when { font-size: 12.5px; font-weight: 700; color: var(--success); white-space: nowrap; flex-shrink: 0; }
-  .journey-title-group { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 auto; }
+  .journey-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; gap: 8px; }
+  .journey-when-group { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; }
+  .journey-when { font-size: 12.5px; font-weight: 700; color: var(--success); white-space: nowrap; }
+  .journey-arrive { font-size: 10px; font-weight: 700; color: var(--muted); white-space: nowrap; }
+  .journey-title-group { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 auto; padding-top: 1px; }
   .journey-title {
     font-size: 12px;
     font-weight: 700;
@@ -632,16 +634,21 @@
   function walkMins(meters) { return Math.max(1, Math.round(meters / 70)); }
 
   function whenLabel(mins) { return mins <= 0 ? 'Ahora' : 'Pasa en ' + mins + ' min'; }
+  function arriveLabel(mins) { return mins <= 0 ? 'Llegás ahora' : 'Llegás en ' + mins + ' min'; }
 
-  // Los "Pasa en X min" quedan fijos en el momento en que se dibujan -
-  // sin esto, un resultado que mirás 5 minutos después seguiría diciendo
-  // lo mismo que cuando apareció. Refresca cualquier badge visible (en la
-  // lista de resultados o en el popup de una parada) cada 30s.
+  // Los "Pasa en X min" / "Llegás en X min" quedan fijos en el momento en
+  // que se dibujan - sin esto, un resultado que mirás 5 minutos después
+  // seguiría diciendo lo mismo que cuando apareció. Refresca cualquier
+  // badge visible (lista de resultados o popup de una parada) cada 30s.
   function refreshWhenLabels() {
     var now = Date.now();
     document.querySelectorAll('.journey-when[data-when]').forEach(function(el) {
       var mins = Math.round((parseInt(el.getAttribute('data-when'), 10) - now) / 60000);
       el.textContent = whenLabel(mins);
+    });
+    document.querySelectorAll('.journey-arrive[data-arrive]').forEach(function(el) {
+      var mins = Math.round((parseInt(el.getAttribute('data-arrive'), 10) - now) / 60000);
+      el.textContent = arriveLabel(mins);
     });
   }
   setInterval(refreshWhenLabels, 30000);
@@ -698,13 +705,21 @@
     return rows;
   }
 
-  function candidatesHtml(candidates) {
+  function journeyWhenGroup(c) {
     var now = Date.now();
+    var departMins = Math.round((c.originTime - now) / 60000);
+    var arriveMins = Math.round((c.arrivalTime - now) / 60000);
+    return '<span class="journey-when-group">' +
+      '<span class="journey-when" data-when="' + c.originTime + '">' + whenLabel(departMins) + '</span>' +
+      '<span class="journey-arrive" data-arrive="' + c.arrivalTime + '">' + arriveLabel(arriveMins) + '</span>' +
+    '</span>';
+  }
+
+  function candidatesHtml(candidates) {
     return candidates.map(function(c, i) {
-      var mins = Math.round((c.originTime - now) / 60000);
       var hasDestWalk = c.destWalkMeters >= 30;
       return '<div class="arrival ' + (i === 0 ? 'recommended' : 'also-good') + '" data-idx="' + i + '">' +
-        '<div class="journey-head"><span class="journey-title-group"><span class="journey-title">' + escapeHtml(c.route + ' · ' + c.headsign) + '</span>' + (i === 0 ? recommendedBadge() : '') + '</span><span class="journey-when" data-when="' + c.originTime + '">' + whenLabel(mins) + '</span></div>' +
+        '<div class="journey-head"><span class="journey-title-group"><span class="journey-title">' + escapeHtml(c.route + ' · ' + c.headsign) + '</span>' + (i === 0 ? recommendedBadge() : '') + '</span>' + journeyWhenGroup(c) + '</div>' +
         fasterAlternativeNote(c) +
         journeyToggleButton() +
         '<div class="journey-details" hidden>' +
@@ -718,9 +733,7 @@
   }
 
   function twoLegCandidatesHtml(candidates) {
-    var now = Date.now();
     return candidates.map(function(c, i) {
-      var mins = Math.round((c.originTime - now) / 60000);
       var transferLabel = c.transferStop ? (c.transferStop.address || c.transferStop.name) : 'la parada de trasbordo';
       var hasDestWalk = c.destWalkMeters >= 30;
       var transferWalkStep = '';
@@ -728,7 +741,7 @@
         transferWalkStep = journeyStep('Caminás', 'walk', '', { label: c.boardStop.address || c.boardStop.name, stop: c.boardStop }, '~' + c.walkMeters + ' m (unos ' + walkMins(c.walkMeters) + ' min)');
       }
       return '<div class="arrival ' + (i === 0 ? 'recommended' : 'also-good') + '" data-idx="' + i + '">' +
-        '<div class="journey-head"><span class="journey-title-group"><span class="journey-title">' + escapeHtml(c.leg1Route) + ' · con transbordo</span>' + (i === 0 ? recommendedBadge() : '') + '</span><span class="journey-when" data-when="' + c.originTime + '">' + whenLabel(mins) + '</span></div>' +
+        '<div class="journey-head"><span class="journey-title-group"><span class="journey-title">' + escapeHtml(c.leg1Route) + ' · con transbordo</span>' + (i === 0 ? recommendedBadge() : '') + '</span>' + journeyWhenGroup(c) + '</div>' +
         fasterAlternativeNote(c) +
         journeyToggleButton() +
         '<div class="journey-details" hidden>' +
