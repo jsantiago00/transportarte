@@ -1348,19 +1348,19 @@
     document.getElementById('searchBtn').disabled = !(state.origin && state.dest);
   }
 
-  function onPointSet(justSet) {
+  function onPointSet(justSet, skipZoom) {
     if (justSet === 'origin') armTarget(state.dest ? null : 'dest');
     else armTarget(state.origin ? null : 'origin');
-    fitMapToPoints();
+    if (!skipZoom) fitMapToPoints();
   }
 
-  function setOrigin(coords, label) {
+  function setOrigin(coords, label, skipZoom) {
     state.origin = coords;
     setFieldValue('origin', label || defaultCoordLabel(coords));
     placeMarker('origin', coords);
     updateSearchEnabled();
     document.getElementById('saveOriginBtn').hidden = false;
-    onPointSet('origin');
+    onPointSet('origin', skipZoom);
   }
   function setDest(coords, label) {
     state.dest = coords;
@@ -1398,7 +1398,7 @@
     btn.disabled = true;
     btn.classList.add('loading');
     getCurrentPosition().then(function(pos) {
-      setOrigin(pos, 'Tu ubicación');
+      setOrigin(pos, 'Tu ubicación', true); // fija el origen sin mover el mapa
     }).catch(function(err) {
       toast('No pudimos usar tu ubicación (' + err.message + ').');
     }).then(function() {
