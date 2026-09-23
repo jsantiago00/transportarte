@@ -230,7 +230,7 @@
     border: 1px solid var(--border);
     background: var(--surface);
     box-shadow: 0 4px 14px rgba(0,0,0,0.18);
-    font-size: 17px;
+    color: var(--danger);
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -245,10 +245,8 @@
     cursor: pointer;
   }
   .btn-primary { background: var(--primary); color: #fff; box-shadow: 0 4px 12px -3px var(--primary-dark); }
-  .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
   .btn-full { width: 100%; padding: 13px; font-size: 15px; border-radius: 13px; }
   .btn:disabled { opacity: 0.6; cursor: default; }
-  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 
   .suggest-list {
     position: absolute;
@@ -311,11 +309,10 @@
   .sheet-summary span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sheet-summary { touch-action: none; }
   .sheet-handle {
-    width: 34px;
-    height: 5px;
-    border-radius: 999px;
-    background: var(--muted);
-    opacity: 0.5;
+    font-size: 13px;
+    line-height: 1;
+    color: var(--muted);
+    opacity: 0.7;
     flex-shrink: 0;
   }
   #sheetBody { flex-shrink: 0; padding-bottom: 4px; }
@@ -439,6 +436,7 @@
   .step-place .link-btn { font-size: 11.5px; margin-left: 4px; white-space: nowrap; }
   .step-time { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
   .link-btn { color: var(--primary); text-decoration: none; font-weight: 700; }
+  button.link-btn { background: none; border: none; padding: 0; cursor: pointer; }
 
   .toast {
     position: fixed;
@@ -478,10 +476,17 @@
     border: 3px solid var(--primary);
     box-shadow: 0 1px 4px rgba(0,0,0,0.4);
   }
-  .stop-popup { font-size: 12.5px; min-width: 180px; }
-  .stop-popup .stop-popup-title { font-weight: 700; font-size: 13px; margin: 0 0 6px; }
-  .stop-popup .arrival { padding: 8px 9px; }
-  .leaflet-popup-content { margin: 10px 12px; }
+  .temp-highlight-dot {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: rgba(217,45,32,0.35);
+    border: 3px solid var(--danger);
+    box-shadow: 0 0 0 8px rgba(217,45,32,0.15);
+    transition: opacity 2s ease, transform 2s ease;
+    opacity: 1;
+  }
+  .temp-highlight-dot.fading { opacity: 0; transform: scale(1.7); }
 </style>
 </head>
 <body>
@@ -490,12 +495,21 @@
 
 <span class="brand-tiny">Transport<span class="brand-arte">Arte</span></span>
 <button class="theme-toggle-btn" id="themeToggleBtn" type="button">🌙</button>
-<button class="locate-me-btn" id="locateMeBtn" type="button" title="Centrar en mi ubicación" aria-label="Centrar en mi ubicación">🎯</button>
+<button class="locate-me-btn" id="locateMeBtn" type="button" title="Centrar en mi ubicación" aria-label="Centrar en mi ubicación">
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+    <circle cx="12" cy="12" r="7"></circle>
+    <line x1="12" y1="1" x2="12" y2="4"></line>
+    <line x1="12" y1="20" x2="12" y2="23"></line>
+    <line x1="1" y1="12" x2="4" y2="12"></line>
+    <line x1="20" y1="12" x2="23" y2="12"></line>
+    <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"></circle>
+  </svg>
+</button>
 
 <div class="bottom-card" id="bottomCard">
   <button class="sheet-summary" id="sheetSummary" type="button">
     <span id="sheetSummaryText">Elegí tu origen y destino</span>
-    <span class="sheet-handle" id="sheetHandle"></span>
+    <span class="sheet-handle" id="sheetHandle">▴</span>
   </button>
   <div id="sheetBody">
     <div class="field">
@@ -526,7 +540,7 @@
 
   <button class="sheet-summary" id="resultsSummary" type="button" hidden>
     <span id="resultsSummaryText">Resultados</span>
-    <span class="sheet-handle" id="resultsHandle"></span>
+    <span class="sheet-handle" id="resultsHandle">▴</span>
   </button>
   <div id="resultsArea"></div>
   <button class="search-btn" id="searchBtn" type="button" disabled>Buscar viaje</button>
@@ -618,16 +632,20 @@
     });
   }
 
-  function mapsSearchLink(stop) {
-    return (stop && stop.lat && stop.lon) ? 'https://www.google.com/maps/search/?api=1&query=' + stop.lat + ',' + stop.lon : null;
+  // En vez de abrir Google Maps, marca el punto un momento en nuestro propio
+  // mapa (ver showTemporaryDot) - el botón lleva las coordenadas en atributos
+  // data-* y el click lo maneja el delegado de #resultsArea.
+  function viewOnMapButton(stop, fontSize) {
+    if (!stop || stop.lat == null || stop.lon == null) return '';
+    return ' · <button type="button" class="view-on-map-btn link-btn" style="font-size:' + (fontSize || '11.5px') + ';" ' +
+      'data-lat="' + stop.lat + '" data-lon="' + stop.lon + '">Ver en el mapa</button>';
   }
 
   function stopLocationHtml(stop) {
-    var mapsLink = mapsSearchLink(stop);
     var walkLine = (typeof stop.walkMeters === 'number') ? (' · ~' + stop.walkMeters + ' m caminando') : '';
     return '<p style="font-size:13.5px;font-weight:700;margin:0 0 2px;">' + escapeHtml(stop.address || stop.name) + '</p>' +
       '<p style="font-size:11.5px;margin:0 0 6px;color:var(--muted);">Parada ' + escapeHtml(stop.name) + walkLine +
-      (mapsLink ? ' · <a href="' + mapsLink + '" target="_blank" rel="noopener" class="link-btn" style="font-size:11.5px;">Ver en el mapa</a>' : '') +
+      viewOnMapButton(stop) +
       '</p>';
   }
 
@@ -684,8 +702,7 @@
     var routePart = routeLine ? '<div class="step-route">' + escapeHtml(routeLine) + '</div>' : '';
     var placePart = '';
     if (place && place.label) {
-      var link = mapsSearchLink(place.stop);
-      placePart = '<div class="step-place">' + escapeHtml(place.label) + (link ? ' · <a href="' + link + '" target="_blank" rel="noopener" class="link-btn">Ver en el mapa</a>' : '') + '</div>';
+      placePart = '<div class="step-place">' + escapeHtml(place.label) + viewOnMapButton(place.stop) + '</div>';
     }
     return '<div class="journey-step">' +
       '<span class="step-tag ' + tagClass + '">' + tag + '</span>' +
@@ -768,12 +785,6 @@
     });
   }
 
-  function mapsDirUrl() {
-    if (!state.origin || !state.dest) return '#';
-    return 'https://www.google.com/maps/dir/?api=1&origin=' + state.origin.lat + ',' + state.origin.lon +
-      '&destination=' + state.dest.lat + ',' + state.dest.lon + '&travelmode=transit';
-  }
-
   // Deslizar hacia arriba/abajo el "asa" de un panel lo expande/colapsa; un
   // toque simple (deslizamiento mínimo) también alterna, para que siga
   // funcionando con mouse o con un tap corto.
@@ -804,6 +815,7 @@
 
   function setResultsCollapsed(collapsed) {
     document.getElementById('resultsArea').hidden = collapsed;
+    document.getElementById('resultsHandle').textContent = collapsed ? '▾' : '▴';
   }
   wireSwipeToggle(document.getElementById('resultsSummary'),
     function() { return document.getElementById('resultsArea').hidden; },
@@ -819,7 +831,6 @@
 
   function renderResults(data) {
     var el = document.getElementById('resultsArea');
-    var mapsLink = '<div class="btn-row"><a class="btn btn-outline btn-full" style="text-align:center;text-decoration:none;" href="' + mapsDirUrl() + '" target="_blank" rel="noopener">Ver ruta completa en Google Maps</a></div>';
     if (data.tooClose) {
       lastCandidates = [];
       lastCandidateType = null;
@@ -832,7 +843,7 @@
       lastCandidates = data.direct;
       lastCandidateType = 'direct';
       showResultsSummary('Mejores opciones (' + data.direct.length + ') · tocá una para ver el recorrido');
-      el.innerHTML = '<div class="transit-result">' + candidatesHtml(data.direct) + '</div>' + mapsLink;
+      el.innerHTML = '<div class="transit-result">' + candidatesHtml(data.direct) + '</div>';
       highlightCandidate(0);
       return;
     }
@@ -840,7 +851,7 @@
       lastCandidates = data.transfer;
       lastCandidateType = 'transfer';
       showResultsSummary('Combinaciones con transbordo (' + data.transfer.length + ') · tocá una para ver el recorrido');
-      el.innerHTML = '<div class="transit-result">' + twoLegCandidatesHtml(data.transfer) + '</div>' + mapsLink;
+      el.innerHTML = '<div class="transit-result">' + twoLegCandidatesHtml(data.transfer) + '</div>';
       highlightCandidate(0);
       return;
     }
@@ -853,8 +864,7 @@
       '<div class="card">' + (fb.originStop ? stopLocationHtml(fb.originStop) + arrivalsHtml(fb.originArrivals || []) : '<p style="font-size:13px;color:var(--muted);">No se encontraron paradas cercanas.</p>') + '</div>' +
       '<p style="font-size:12px;color:var(--muted);margin:4px 0 12px;">No encontramos ni una línea directa ni una combinación con transbordo entre las paradas cercanas.</p>' +
       '<div class="section-title">Cerca de a dónde vas</div>' +
-      '<div class="card">' + (fb.destStop ? stopLocationHtml(fb.destStop) : '<p style="font-size:13px;color:var(--muted);">No se encontró una parada cercana.</p>') + '</div>' +
-      mapsLink;
+      '<div class="card">' + (fb.destStop ? stopLocationHtml(fb.destStop) : '<p style="font-size:13px;color:var(--muted);">No se encontró una parada cercana.</p>') + '</div>';
     el.innerHTML = html;
   }
 
@@ -958,26 +968,19 @@
     }).join('');
   }
 
-  function wireStopPopupClicks(marker) {
-    var popup = marker.getPopup();
-    var el = popup && popup.getElement();
-    if (!el) return;
-    el.querySelectorAll('.arrival[data-shape]').forEach(function(card) {
-      card.addEventListener('click', function() {
-        var shapeId = card.getAttribute('data-shape');
-        if (!shapeId) { toast('Esta línea no tiene el recorrido disponible.'); return; }
-        drawSingleBusShape(shapeId);
-      });
-    });
-  }
-
-  function openStopPopup(stop, marker) {
-    marker.setPopupContent('<div class="stop-popup"><p class="stop-popup-title">' + escapeHtml(stop.address || stop.name) + '</p><p style="color:var(--muted);">Buscando llegadas...</p></div>');
+  // Tocar una parada del mapa muestra sus llegadas en el panel de abajo
+  // (mismo lugar que los resultados de una búsqueda) en vez de una leyenda
+  // flotando sobre el mapa, que tapaba justo la zona que querías mirar.
+  function showStopArrivals(stop) {
+    lastCandidates = [];
+    lastCandidateType = null;
+    var el = document.getElementById('resultsArea');
+    showResultsSummary(stop.address || stop.name);
+    el.innerHTML = '<p class="transit-loading">Buscando llegadas...</p>';
     fetchStopArrivals(stop.id).then(function(arrivals) {
-      marker.setPopupContent('<div class="stop-popup"><p class="stop-popup-title">' + escapeHtml(stop.address || stop.name) + '</p>' + stopArrivalsHtml(arrivals) + '</div>');
-      wireStopPopupClicks(marker);
+      el.innerHTML = stopArrivalsHtml(arrivals);
     }).catch(function() {
-      marker.setPopupContent('<div class="stop-popup"><p class="stop-popup-title">' + escapeHtml(stop.address || stop.name) + '</p><p style="color:var(--muted);">No pudimos cargar las llegadas.</p></div>');
+      el.innerHTML = '<p class="transit-loading">No pudimos cargar las llegadas.</p>';
     });
   }
 
@@ -997,8 +1000,7 @@
         seenIds[stop.id] = true;
         if (stopMarkersById[stop.id]) return;
         var marker = L.marker([stop.lat, stop.lon], { icon: stopIcon() });
-        marker.bindPopup('', { maxWidth: 240 });
-        marker.on('click', function() { openStopPopup(stop, marker); });
+        marker.on('click', function() { showStopArrivals(stop); });
         marker.addTo(stopMarkersLayer);
         stopMarkersById[stop.id] = marker;
       });
@@ -1164,6 +1166,24 @@
     leafletMap.fitBounds(L.latLngBounds(boundsPoints), { paddingTopLeft: [30, 60], paddingBottomRight: [30, 280] });
   }
 
+  // "Ver en el mapa" en un paso de la guía de viaje ya no abre Google Maps:
+  // centra nuestro propio mapa ahí y deja un puntito que se desvanece solo,
+  // en vez de un pin permanente que haya que andar sacando.
+  function showTemporaryDot(lat, lon) {
+    if (isNaN(lat) || isNaN(lon)) return;
+    leafletMap.setView([lat, lon], 17);
+    var marker = L.marker([lat, lon], {
+      icon: L.divIcon({ className: 'temp-highlight-dot', html: '', iconSize: [22, 22], iconAnchor: [11, 11] }),
+      interactive: false,
+      zIndexOffset: 900
+    }).addTo(leafletMap);
+    setTimeout(function() {
+      var el = marker.getElement();
+      if (el) el.classList.add('fading');
+    }, 50);
+    setTimeout(function() { leafletMap.removeLayer(marker); }, 2600);
+  }
+
   // Dibuja el recorrido de un solo colectivo (usado al tocar uno en el popup
   // de una parada), sin comparar con otras opciones.
   function drawSingleBusShape(shapeId) {
@@ -1241,7 +1261,20 @@
         : 'Ver guía de viaje <span class="arrow">▾</span>';
       return; // sólo despliega el detalle - no dibuja el recorrido ni colapsa el panel
     }
+    var viewBtn = e.target.closest('.view-on-map-btn');
+    if (viewBtn) {
+      showTemporaryDot(parseFloat(viewBtn.getAttribute('data-lat')), parseFloat(viewBtn.getAttribute('data-lon')));
+      return;
+    }
     if (e.target.closest('a')) return;
+    var stopCard = e.target.closest('.arrival[data-shape]');
+    if (stopCard) {
+      var shapeId = stopCard.getAttribute('data-shape');
+      if (!shapeId) { toast('Esta línea no tiene el recorrido disponible.'); return; }
+      drawSingleBusShape(shapeId);
+      setResultsCollapsed(true);
+      return;
+    }
     var card = e.target.closest('.arrival[data-idx]');
     if (!card) return;
     highlightCandidate(parseInt(card.getAttribute('data-idx'), 10));
@@ -1275,6 +1308,7 @@
   // ---------- Panel inferior: deslizar para minimizar/expandir el selector de origen/destino ----------
   function setSheetCollapsed(collapsed) {
     document.getElementById('sheetBody').hidden = collapsed;
+    document.getElementById('sheetHandle').textContent = collapsed ? '▾' : '▴';
   }
   wireSwipeToggle(document.getElementById('sheetSummary'),
     function() { return document.getElementById('sheetBody').hidden; },
